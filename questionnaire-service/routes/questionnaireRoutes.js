@@ -1,0 +1,16 @@
+const express = require('express');
+const router = express.Router();
+const qController = require('../controllers/questionnaireController');
+const authMiddleware = require('../authMiddleware');
+
+router.use(authMiddleware);
+
+router.get('/', qController.getQuestionnaires);
+router.post('/:id/submit', qController.submitQuestionnaire);
+
+// Dynamic CMS Admin Routes
+router.post('/admin/questions', qController.addQuestion);
+router.put('/admin/questions/:id', qController.updateQuestion);
+router.delete('/admin/questions/:id', qController.deleteQuestion);
+
+module.exports = router;
