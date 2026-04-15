@@ -50,11 +50,15 @@ router.get('/users/:id', adminController.getUserDetail);
 
 // 8.7 Data Export
 router.post('/export', adminController.exportDataset);
+router.get('/export/history', adminController.getExportHistory);
+
 
 // 8.8 Subscription Management
 router.post('/users/:id/subscription',            adminController.assignSubscription);
+router.put('/users/:id/subscription/change',      adminController.changeProgram);
 router.put('/users/:id/subscription/suspend',     adminController.suspendSubscription);
 router.put('/users/:id/subscription/reactivate',  adminController.reactivateSubscription);
+router.get('/users/:id/enrollment-history',       adminController.getEnrollmentHistory);
 
 // 8.9 Dashboard Config
 router.get('/dashboard/config', adminController.getDashboardConfig);
@@ -64,7 +68,13 @@ router.put('/dashboard/config', adminController.saveDashboardConfig);
 router.post('/users',            adminController.createUserProfile);
 router.put('/users/:id',         adminController.updateUserProfile);
 router.put('/users/:id/status',  adminController.changeUserStatus);
-router.get('/users/:id/audit',   adminController.getUserAuditTrail);
+router.put('/users/:id/medical-profile', adminController.updateUserMedicalProfile);
+router.put('/users/:id/lifestyle',       adminController.updateUserLifestyle);
+router.get('/users/:id/audit',             adminController.getUserAuditTrail);
+// Device Management
+router.get('/users/:id/devices',           adminController.getUserDevices);
+router.post('/users/:id/devices',          adminController.assignDevice);
+router.delete('/users/:id/devices/:deviceId', adminController.removeDevice);
 
 module.exports = router;
 

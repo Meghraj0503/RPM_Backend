@@ -1,4 +1,4 @@
--- psql -U postgres -d remote_patient_monitor -f /home/harshata/RPMV1/database_schema.sql
+-- psql -U postgres -d remote_patient_monitor -f /home/harshata/RPMV1/microservices/database_schema.sql
 CREATE SEQUENCE IF NOT EXISTS user_seq START 100000;
 CREATE SEQUENCE IF NOT EXISTS otp_seq START 100000;
 CREATE SEQUENCE IF NOT EXISTS device_seq START 300000;
@@ -88,14 +88,16 @@ CREATE TABLE IF NOT EXISTS user_lifestyle (
 );
 
 CREATE TABLE IF NOT EXISTS user_devices (
-    id VARCHAR(20) PRIMARY KEY DEFAULT 'DEV-' || nextval('device_seq')::text,
+    id SERIAL PRIMARY KEY,
     user_id VARCHAR(20) REFERENCES users(id) ON DELETE CASCADE,
-    device_name VARCHAR(255) NOT NULL,
+    device_name VARCHAR(255),
     mac_address VARCHAR(50) NOT NULL,
+    nickname VARCHAR(255),
+    assigned_by VARCHAR(255),
+    assigned_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     is_connected BOOLEAN DEFAULT TRUE,
     last_connected_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(user_id, mac_address)
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS user_vitals (
@@ -158,13 +160,15 @@ CREATE TABLE IF NOT EXISTS articles (
     title VARCHAR(255) NOT NULL,
     author_name VARCHAR(255),
     content TEXT NOT NULL,
-    category VARCHAR(100) NOT NULL, 
+    category VARCHAR(100) NOT NULL,
     cover_image_url VARCHAR(500),
-    estimated_read_time INT, 
+    estimated_read_time INT,
     is_published BOOLEAN DEFAULT FALSE,
     is_draft BOOLEAN DEFAULT TRUE,
     is_deleted BOOLEAN DEFAULT FALSE,
     published_at TIMESTAMP WITH TIME ZONE,
+    scheduled_publish_at TIMESTAMP WITH TIME ZONE,
+    publish_status VARCHAR(20) DEFAULT 'draft',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -220,3 +224,96 @@ CREATE TABLE IF NOT EXISTS data_deletion_requests (
     requested_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     processed_at TIMESTAMP WITH TIME ZONE
 );
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- ADMIN PORTAL TABLES (added during admin portal development)
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- Admin users (email + bcrypt password login)
+CREATE TABLE IF NOT EXISTS admin_users (
+    id VARCHAR(20) PRIMARY KEY DEFAULT 'ADM-' || nextval('user_seq')::text,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(20) DEFAULT 'admin',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- User subscriptions / program enrollments
+CREATE TABLE IF NOT EXISTS user_subscriptions (
+    id SERIAL PRIMARY KEY,
+    user_id VARCHAR(20) REFERENCES users(id) ON DELETE CASCADE,
+    program_name VARCHAR(255) DEFAULT 'Wellness Program 2025',
+    enrolled_by VARCHAR(255) DEFAULT 'System Auto',
+    start_date DATE,
+    expiry_date DATE,
+    status VARCHAR(50) DEFAULT 'Active',
+    validity_days INTEGER,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Enrollment / subscription audit log
+CREATE TABLE IF NOT EXISTS subscription_audit_logs (
+    id SERIAL PRIMARY KEY,
+    user_id VARCHAR(20) REFERENCES users(id) ON DELETE CASCADE,
+    admin_id VARCHAR(20),
+    program_name VARCHAR(255),
+    reason TEXT,
+    action VARCHAR(100),
+    previous_status VARCHAR(100),
+    new_status VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- General user audit log (all admin actions on a user)
+CREATE TABLE IF NOT EXISTS user_audit_logs (
+    id SERIAL PRIMARY KEY,
+    user_id VARCHAR(20) REFERENCES users(id) ON DELETE CASCADE,
+    admin_id VARCHAR(20),
+    action_type VARCHAR(100) NOT NULL,
+    category VARCHAR(50) DEFAULT 'Other',
+    changes_json JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_audit_logs_user ON user_audit_logs(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_audit_logs_category ON user_audit_logs(category);
+
+-- Admin dashboard widget configuration
+CREATE TABLE IF NOT EXISTS dashboard_configs (
+    admin_id VARCHAR(20) PRIMARY KEY,
+    layout_json JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Data export history
+CREATE TABLE IF NOT EXISTS export_history (
+    id SERIAL PRIMARY KEY,
+    admin_id VARCHAR(20),
+    export_type VARCHAR(50) NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    fields_exported JSONB,
+    date_from DATE,
+    date_to DATE,
+    program VARCHAR(255),
+    row_count INTEGER DEFAULT 0,
+    file_size_kb INTEGER DEFAULT 0,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- SAFE ALTER STATEMENTS (idempotent — won't fail if columns already exist)
+-- Run these in case the base tables were created from an older version of this file
+-- ─────────────────────────────────────────────────────────────────────────────
+ALTER TABLE articles ADD COLUMN IF NOT EXISTS scheduled_publish_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE articles ADD COLUMN IF NOT EXISTS publish_status VARCHAR(20) DEFAULT 'draft';
+
+ALTER TABLE user_devices ADD COLUMN IF NOT EXISTS nickname VARCHAR(255);
+ALTER TABLE user_devices ADD COLUMN IF NOT EXISTS assigned_by VARCHAR(255);
+ALTER TABLE user_devices ADD COLUMN IF NOT EXISTS assigned_at TIMESTAMP WITH TIME ZONE;
+
+ALTER TABLE user_audit_logs ADD COLUMN IF NOT EXISTS category VARCHAR(50) DEFAULT 'Other';
