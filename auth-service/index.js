@@ -15,5 +15,5 @@ app.use('/api/auth', authRoutes);
 
 sequelize.authenticate().then(() => {
     console.log('Auth Database connected via Sequelize.');
-    app.listen(PORT, () => console.log(`Auth Service running on port ${PORT}`));
+    app.listen(PORT,'0.0.0.0', () => console.log(`Auth Service running on port ${PORT}`));
 }).catch(console.error);

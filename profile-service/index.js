@@ -17,5 +17,5 @@ app.use('/api/settings', settingsRoutes);
 
 sequelize.authenticate().then(() => {
     console.log('Profile Database connected via Sequelize.');
-    app.listen(PORT, () => console.log(`Profile Service running on port ${PORT}`));
+    app.listen(PORT,'0.0.0.0', () => console.log(`Profile Service running on port ${PORT}`));
 }).catch(console.error);

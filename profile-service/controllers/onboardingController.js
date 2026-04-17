@@ -1,9 +1,9 @@
 const { sequelize, User, UserProfile, UserMedicalCondition, UserMedication, UserAllergy, UserLifestyle } = require('../models');
 
 exports.savePersonalInfo = async (req, res) => {
-    const { fullName, dateOfBirth, gender, height, heightUnit, weight, weightUnit } = req.body;
+    const { firstName, lastName, dateOfBirth, gender, height, heightUnit, weight, weightUnit } = req.body;
     const userId = req.user.id;
-    
+    let fullName = `${firstName} ${lastName}`
     if (!height || !weight || !heightUnit || !weightUnit) {
         return res.status(400).json({ error: 'Height, weight, and their units (ft, in, cm, kg, lbs) are required' });
     }

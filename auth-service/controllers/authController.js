@@ -5,44 +5,59 @@ const jwt = require('jsonwebtoken');
 const authMiddleware = require('../authMiddleware');
 
 exports.verifyOtp = async (req, res) => {
-    const { idToken } = req.body || {};
-    if (!idToken) return res.status(400).json({ error: 'Firebase ID Token is required' });
+    const idToken = req.headers.authorization;
+    if (!idToken) {
+        return res.status(401).json({ error: 'No token provided' });
+    }
 
     try {
-        let phoneNumber;
-        if (idToken === 'TEST_TOKEN_123') {
-            phoneNumber = '+1234567890';
-        } else {
-            const decodedToken = await admin.auth().verifyIdToken(idToken);
-            phoneNumber = decodedToken.phone_number;
-        }
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        const phoneNumber = decodedToken.phone_number;
 
-        if (!phoneNumber) return res.status(400).json({ error: 'No phone number linked' });
+        if (!phoneNumber) {
+            return res.status(400).json({ error: 'No phone number linked' });
+        }
 
         let user = await User.findOne({ where: { phone_number: phoneNumber } });
 
         if (!user) {
-            user = await User.create({ phone_number: phoneNumber, is_user: true, is_active: true });
+            user = await User.create({
+                phone_number: phoneNumber,
+                is_user: true,
+                is_active: true
+            });
+
             await UserProfile.create({ user_id: user.id });
         }
 
-        if (user.is_active === false) {
-            return res.status(403).json({ error: 'Your account has been deactivated by an administrator. Please contact support.' });
+        if (!user.is_active) {
+            return res.status(403).json({
+                error: 'Account deactivated. Contact support.'
+            });
         }
 
         user.last_login_at = new Date();
         await user.save();
 
         const sessionToken = jwt.sign(
-            { id: user.id, phoneNumber: user.phone_number, role: 'user' },
+            { id: user.id, phoneNumber },
             process.env.JWT_SECRET || 'fallback_secret',
             { expiresIn: '7d' }
         );
+        return res.json({
+            message: 'Authentication successful',
+            token: sessionToken,
+            user: {
+                id: user.id,
+                phone: phoneNumber
+            }
+        });
 
-        res.json({ message: 'Authentication successful', token: sessionToken, user: { id: user.id, phone: user.phone_number } });
     } catch (error) {
         console.error(error);
-        res.status(401).json({ error: 'Invalid or expired Firebase ID token.' });
+        return res.status(401).json({
+            error: 'Invalid or expired Firebase ID token.'
+        });
     }
 };
 
