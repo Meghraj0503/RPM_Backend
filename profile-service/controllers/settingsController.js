@@ -1,4 +1,4 @@
-const { UserProfile, UserSettings, ConsentLog, DataDeletionRequest } = require('../models');
+const { UserProfile, UserSettings, ConsentLog, DataDeletionRequest, User } = require('../models');
 
 exports.getSettings = async (req, res) => {
     const userId = req.user.id;
@@ -62,7 +62,8 @@ exports.getFullProfile = async (req, res) => {
     const userId = req.user.id;
     try {
         const profile = await UserProfile.findOne({ where: { user_id: userId } });
-        res.json({ profile });
+        const user = await User.findByPk(userId);
+        res.json({ profile,user });
     } catch (error) {
         res.status(500).json({ error: 'Server error fetching profile' });
     }
