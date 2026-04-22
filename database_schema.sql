@@ -118,7 +118,9 @@ CREATE TABLE IF NOT EXISTS questionnaire_templates (
     id VARCHAR(20) PRIMARY KEY DEFAULT 'QST-' || nextval('qst_seq')::text,
     title VARCHAR(255) NOT NULL,
     category VARCHAR(100) NOT NULL,
-    scheduled_days_after_enrollment INT NOT NULL,
+    type VARCHAR(50) DEFAULT 'One-Time',
+    created_by VARCHAR(255),
+    scheduled_days_after_enrollment INT DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -138,6 +140,8 @@ CREATE TABLE IF NOT EXISTS user_questionnaires (
     status VARCHAR(50) DEFAULT 'Pending', 
     scheduled_for DATE NOT NULL,
     completed_at TIMESTAMP WITH TIME ZONE,
+    priority VARCHAR(50) DEFAULT 'Normal',
+    is_mandatory BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 

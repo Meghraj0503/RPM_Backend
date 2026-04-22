@@ -51,13 +51,35 @@ const UserAlert = sequelize.define('user_alert', {
     created_at: { type: DataTypes.DATE }
 }, { tableName: 'user_alerts', timestamps: false });
 
+const QuestionnaireTemplate = sequelize.define('questionnaire_template', {
+    id: { type: DataTypes.STRING(20), primaryKey: true, defaultValue: Sequelize.literal("'QST-' || nextval('qst_seq')") },
+    title: { type: DataTypes.STRING(255) },
+    category: { type: DataTypes.STRING(100) },
+    type: { type: DataTypes.STRING(50), defaultValue: 'One-Time' },
+    created_by: { type: DataTypes.STRING(255) },
+    scheduled_days_after_enrollment: { type: DataTypes.INTEGER, defaultValue: 0 }
+}, { tableName: 'questionnaire_templates', timestamps: true, createdAt: 'created_at', updatedAt: false });
+
+const Question = sequelize.define('question', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    questionnaire_id: { type: DataTypes.STRING(20) },
+    question_text: { type: DataTypes.TEXT },
+    question_type: { type: DataTypes.STRING(50) },
+    options_json: { type: DataTypes.JSONB },
+    sort_order: { type: DataTypes.INTEGER }
+}, { tableName: 'questions', timestamps: false });
+
 const UserQuestionnaire = sequelize.define('user_questionnaire', {
-    id: { type: DataTypes.UUID, primaryKey: true },
+    id: { type: DataTypes.STRING(20), primaryKey: true, defaultValue: Sequelize.literal("'UQS-' || nextval('uqs_seq')") },
     user_id: { type: DataTypes.STRING(20) },
-    status: { type: DataTypes.STRING(20) },
-    overall_score: { type: DataTypes.DECIMAL(5,2) },
-    completed_at: { type: DataTypes.DATE }
-}, { tableName: 'user_questionnaires', timestamps: false });
+    questionnaire_id: { type: DataTypes.STRING(20) },
+    status: { type: DataTypes.STRING(50), defaultValue: 'Pending' },
+    scheduled_for: { type: DataTypes.DATE },
+    priority: { type: DataTypes.STRING(50), defaultValue: 'Normal' },
+    is_mandatory: { type: DataTypes.BOOLEAN, defaultValue: false },
+    completed_at: { type: DataTypes.DATE },
+    overall_score: { type: DataTypes.DECIMAL(5,2) }
+}, { tableName: 'user_questionnaires', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
 const Article = sequelize.define('article', {
     id: { type: DataTypes.STRING(20), primaryKey: true, defaultValue: Sequelize.literal("'ART-' || nextval('article_seq')") },
@@ -172,8 +194,20 @@ User.hasMany(UserMedication, { foreignKey: 'user_id' });
 User.hasMany(UserAllergy, { foreignKey: 'user_id' });
 User.hasOne(UserLifestyle, { foreignKey: 'user_id' });
 User.hasOne(UserSubscription, { foreignKey: 'user_id' });
+UserSubscription.belongsTo(User, { foreignKey: 'user_id' });
 User.hasMany(UserDevice, { foreignKey: 'user_id' });
+User.hasMany(UserVital, { foreignKey: 'user_id' });
+UserVital.belongsTo(User, { foreignKey: 'user_id' });
+User.hasMany(UserAlert, { foreignKey: 'user_id' });
+UserAlert.belongsTo(User, { foreignKey: 'user_id' });
+// Questionnaire relationships
+QuestionnaireTemplate.hasMany(Question, { foreignKey: 'questionnaire_id', as: 'questions' });
+Question.belongsTo(QuestionnaireTemplate, { foreignKey: 'questionnaire_id' });
+
 User.hasMany(UserQuestionnaire, { foreignKey: 'user_id' });
 UserQuestionnaire.belongsTo(User, { foreignKey: 'user_id' });
 
-module.exports = { sequelize, AdminUser, User, UserProfile, UserVital, UserAlert, UserQuestionnaire, Article, ManagerAssignedUser, UserMedicalCondition, UserMedication, UserAllergy, UserLifestyle, UserDevice, UserSubscription, SubscriptionAuditLog, DashboardConfig, UserAuditLog, ExportHistory };
+QuestionnaireTemplate.hasMany(UserQuestionnaire, { foreignKey: 'questionnaire_id' });
+UserQuestionnaire.belongsTo(QuestionnaireTemplate, { foreignKey: 'questionnaire_id' });
+
+module.exports = { sequelize, AdminUser, User, UserProfile, UserVital, UserAlert, QuestionnaireTemplate, Question, UserQuestionnaire, Article, ManagerAssignedUser, UserMedicalCondition, UserMedication, UserAllergy, UserLifestyle, UserDevice, UserSubscription, SubscriptionAuditLog, DashboardConfig, UserAuditLog, ExportHistory };

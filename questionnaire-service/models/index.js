@@ -13,34 +13,33 @@ const sequelize = new Sequelize(
 });
 
 const QuestionnaireTemplate = sequelize.define('questionnaire_template', {
-    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    id: { type: DataTypes.STRING(20), primaryKey: true },
     title: { type: DataTypes.STRING },
     category: { type: DataTypes.STRING },
+    type: { type: DataTypes.STRING(50), defaultValue: 'One-Time' },
     scheduled_days_after_enrollment: { type: DataTypes.INTEGER }
 }, { tableName: 'questionnaire_templates', timestamps: true, createdAt: 'created_at', updatedAt: false });
-
-const UserQuestionnaire = sequelize.define('user_questionnaire', {
-    id: { 
-        type: DataTypes.UUID, 
-        primaryKey: true,
-        defaultValue: DataTypes.UUIDV4
-    },
-    user_id: { type: DataTypes.STRING(20) },
-    template_id: { type: DataTypes.INTEGER },
-    status: { type: DataTypes.STRING(20), defaultValue: 'Pending' }, 
-    scheduled_for: { type: DataTypes.DATE },
-    completed_at: { type: DataTypes.DATE },
-    overall_score: { type: DataTypes.DECIMAL(5,2) }
-}, { tableName: 'user_questionnaires', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
 const Question = sequelize.define('question', {
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     questionnaire_id: { type: DataTypes.STRING(20) }, 
-    question_text: { type: DataTypes.TEXT, allowNull: false },
+    question_text: { type: DataTypes.TEXT },
     question_type: { type: DataTypes.STRING(50) }, 
     options_json: { type: DataTypes.JSONB }, 
     sort_order: { type: DataTypes.INTEGER, defaultValue: 0 }
 }, { tableName: 'questions', timestamps: false });
+
+const UserQuestionnaire = sequelize.define('user_questionnaire', {
+    id: { type: DataTypes.STRING(20), primaryKey: true },
+    user_id: { type: DataTypes.STRING(20) },
+    questionnaire_id: { type: DataTypes.STRING(20) },
+    status: { type: DataTypes.STRING(20), defaultValue: 'Pending' }, 
+    scheduled_for: { type: DataTypes.DATE },
+    priority: { type: DataTypes.STRING(50), defaultValue: 'Normal' },
+    is_mandatory: { type: DataTypes.BOOLEAN, defaultValue: false },
+    completed_at: { type: DataTypes.DATE },
+    overall_score: { type: DataTypes.DECIMAL(5,2) }
+}, { tableName: 'user_questionnaires', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
 const UserResponse = sequelize.define('user_response', {
     id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
@@ -49,5 +48,12 @@ const UserResponse = sequelize.define('user_response', {
     response_value_text: { type: DataTypes.TEXT },
     response_value_numeric: { type: DataTypes.DECIMAL(10,2) }
 }, { tableName: 'user_responses', timestamps: false });
+
+// Associations
+QuestionnaireTemplate.hasMany(Question, { foreignKey: 'questionnaire_id', as: 'questions' });
+Question.belongsTo(QuestionnaireTemplate, { foreignKey: 'questionnaire_id' });
+
+UserQuestionnaire.belongsTo(QuestionnaireTemplate, { foreignKey: 'questionnaire_id' });
+QuestionnaireTemplate.hasMany(UserQuestionnaire, { foreignKey: 'questionnaire_id' });
 
 module.exports = { sequelize, QuestionnaireTemplate, UserQuestionnaire, Question, UserResponse };

@@ -3,13 +3,26 @@ const { UserQuestionnaire, QuestionnaireTemplate, Question, UserResponse } = req
 exports.getQuestionnaires = async (req, res) => {
     const userId = req.user.id;
     try {
-        const questionnaires = await UserQuestionnaire.findAll({ where: { user_id: userId } });
-        const pending = questionnaires.filter(q => q.status === 'Pending');
-        const completed = questionnaires.filter(q => q.status === 'Completed');
-        const upcoming = questionnaires.filter(q => q.status === 'Upcoming');
+        // Fetch all except 'Scheduled' — those are not yet visible to the patient
+        const questionnaires = await UserQuestionnaire.findAll({
+            where: { user_id: userId },
+            include: [
+                {
+                    model: QuestionnaireTemplate,
+                    attributes: ['title', 'category', 'type'],
+                    include: [{ model: Question, as: 'questions', attributes: ['id', 'question_text', 'question_type', 'options_json', 'sort_order'] }]
+                }
+            ]
+        });
 
-        res.json({ pending, completed, upcoming });
+        // 'Scheduled' entries are hidden from patient until the time comes
+        const visible = questionnaires.filter(q => q.status !== 'Scheduled');
+        const pending = visible.filter(q => q.status === 'Pending' || q.status === 'Assigned');
+        const completed = visible.filter(q => q.status === 'Completed');
+
+        res.json({ pending, completed });
     } catch (error) {
+        console.error(error);
         res.status(500).json({ error: 'Server error fetching questionnaires' });
     }
 };

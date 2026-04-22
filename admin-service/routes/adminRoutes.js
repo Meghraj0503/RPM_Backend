@@ -1,7 +1,7 @@
 const express = require('express');
-const router  = express.Router();
-const multer  = require('multer');
-const path    = require('path');
+const router = express.Router();
+const multer = require('multer');
+const path = require('path');
 const adminController = require('../controllers/adminController');
 const adminMiddleware = require('../adminMiddleware');
 
@@ -31,12 +31,12 @@ router.post('/upload', upload.single('file'), (req, res) => {
 router.get('/dashboard', adminController.getCohortDashboard);
 
 // 8.3 Educational Content Management
-router.get('/articles',               adminController.getArticles);
-router.get('/articles/:id',           adminController.getArticle);
-router.post('/articles',              adminController.createArticle);
-router.put('/articles/:id',           adminController.updateArticle);
-router.delete('/articles/:id',        adminController.deleteArticle);
-router.put('/articles/:id/publish',   adminController.publishArticle);
+router.get('/articles', adminController.getArticles);
+router.get('/articles/:id', adminController.getArticle);
+router.post('/articles', adminController.createArticle);
+router.put('/articles/:id', adminController.updateArticle);
+router.delete('/articles/:id', adminController.deleteArticle);
+router.put('/articles/:id/publish', adminController.publishArticle);
 router.put('/articles/:id/unpublish', adminController.unpublishArticle);
 
 // 8.4 User Management (search + filters: activity_status, q_status, enrolled_after/before)
@@ -54,27 +54,37 @@ router.get('/export/history', adminController.getExportHistory);
 
 
 // 8.8 Subscription Management
-router.post('/users/:id/subscription',            adminController.assignSubscription);
-router.put('/users/:id/subscription/change',      adminController.changeProgram);
-router.put('/users/:id/subscription/suspend',     adminController.suspendSubscription);
-router.put('/users/:id/subscription/reactivate',  adminController.reactivateSubscription);
-router.get('/users/:id/enrollment-history',       adminController.getEnrollmentHistory);
+router.post('/users/:id/subscription', adminController.assignSubscription);
+router.put('/users/:id/subscription/change', adminController.changeProgram);
+router.put('/users/:id/subscription/suspend', adminController.suspendSubscription);
+router.put('/users/:id/subscription/reactivate', adminController.reactivateSubscription);
+router.get('/users/:id/enrollment-history', adminController.getEnrollmentHistory);
 
 // 8.9 Dashboard Config
 router.get('/dashboard/config', adminController.getDashboardConfig);
 router.put('/dashboard/config', adminController.saveDashboardConfig);
 
 // 8.10 User Profile Management
-router.post('/users',            adminController.createUserProfile);
-router.put('/users/:id',         adminController.updateUserProfile);
-router.put('/users/:id/status',  adminController.changeUserStatus);
+router.post('/users', adminController.createUserProfile);
+router.put('/users/:id', adminController.updateUserProfile);
+router.put('/users/:id/status', adminController.changeUserStatus);
 router.put('/users/:id/medical-profile', adminController.updateUserMedicalProfile);
-router.put('/users/:id/lifestyle',       adminController.updateUserLifestyle);
-router.get('/users/:id/audit',             adminController.getUserAuditTrail);
+router.put('/users/:id/lifestyle', adminController.updateUserLifestyle);
+router.get('/users/:id/audit', adminController.getUserAuditTrail);
 // Device Management
-router.get('/users/:id/devices',           adminController.getUserDevices);
-router.post('/users/:id/devices',          adminController.assignDevice);
+router.get('/users/:id/devices', adminController.getUserDevices);
+router.post('/users/:id/devices', adminController.assignDevice);
 router.delete('/users/:id/devices/:deviceId', adminController.removeDevice);
+
+// ==================== QUESTIONNAIRE BUILDER ====================
+router.get('/questionnaires', adminController.getQuestionnaires);
+router.post('/questionnaires', adminController.createQuestionnaire);
+router.get('/questionnaires/:id', adminController.getQuestionnaireDetail);
+router.put('/questionnaires/:id', adminController.updateQuestionnaire);
+router.delete('/questionnaires/:id', adminController.deleteQuestionnaire);
+
+router.get('/questionnaires/:id/target-users', adminController.getQuestionnaireTargetUsers);
+router.post('/questionnaires/:id/assign', adminController.assignQuestionnaire);
 
 module.exports = router;
 

@@ -20,9 +20,14 @@ app.use('/api/admin/auth', authRoutes);
 // All other admin routes (protected via adminMiddleware inside)
 app.use('/api/admin', adminRoutes);
 
+const { startScheduler } = require('./scheduler');
+
 // Sync all models including new admin_users table
 sequelize.sync({ alter: { drop: false } }).then(() => {
     console.log('Admin Service DB synced (admin_users table ready).');
-    app.listen(PORT, () => console.log(`Admin Service running on port ${PORT}`));
+    app.listen(PORT, () => {
+        console.log(`Admin Service running on port ${PORT}`);
+        startScheduler(); // Start cron job to dispatch scheduled questionnaires
+    });
 }).catch(console.error);
 

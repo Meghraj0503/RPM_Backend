@@ -1,6 +1,6 @@
-const { User, UserProfile, UserVital, UserAlert, UserQuestionnaire, Article, UserMedicalCondition, UserMedication, UserAllergy, UserLifestyle, UserSubscription, SubscriptionAuditLog, DashboardConfig, UserAuditLog, UserDevice, ExportHistory, sequelize } = require('../models');
+const { User, UserProfile, UserVital, UserAlert, UserQuestionnaire, Article, UserMedicalCondition, UserMedication, UserAllergy, UserLifestyle, UserSubscription, SubscriptionAuditLog, DashboardConfig, UserAuditLog, UserDevice, ExportHistory, sequelize, QuestionnaireTemplate, Question } = require('../models');
 const { Op } = require('sequelize');
-const jwt    = require('jsonwebtoken');
+const jwt = require('jsonwebtoken');
 
 // 8.1 Admin Login (legacy - phone-based, kept for reference)
 exports.login = async (req, res) => {
@@ -10,7 +10,7 @@ exports.login = async (req, res) => {
         if (!user || (!user.is_admin && !user.is_manager)) {
             return res.status(401).json({ error: 'Unauthorized. Admin or Manager access required.' });
         }
-        const role  = user.is_admin ? 'admin' : 'manager';
+        const role = user.is_admin ? 'admin' : 'manager';
         const token = jwt.sign({ id: user.id, role }, process.env.JWT_SECRET || 'fallback_secret', { expiresIn: '1d' });
         return res.json({ token, role, message: 'Admin login successful' });
     } catch (e) { return res.status(500).json({ error: 'Login error' }); }
@@ -19,12 +19,239 @@ exports.login = async (req, res) => {
 // 8.2 Cohort Dashboard
 exports.getCohortDashboard = async (req, res) => {
     try {
-        const totalUsers       = await User.count({ where: { is_user: true } });
-        const activeUsersCount = await User.count({ where: { is_user: true, last_login_at: { [Op.gte]: new Date(Date.now() - 7 * 86400000) } } });
-        const alertsCount      = await UserAlert.count({ where: { is_resolved: false } });
-        const completedQCount  = await UserQuestionnaire.count({ where: { status: 'Completed' } });
-        res.json({ total_enrolled_users: totalUsers, active_users_7d: activeUsersCount, active_alerts: alertsCount, completed_questionnaires: completedQCount, average_program_score: 85.5 });
-    } catch (error) { res.status(500).json({ error: 'Dashboard error' }); }
+        // --- 1. Top Level Overarching Stats ---
+        const totalUsers = await User.count({ where: { is_user: true } });
+        const activeUsersCount = await User.count({ where: { is_user: true, last_login_at: { [Op.gte]: new Date(Date.now() - 30 * 86400000) } } }); // 30d
+        const atRiskUsersCount = await UserAlert.count({ where: { is_resolved: false }, distinct: true, col: 'user_id' });
+        const completedQCount = await UserQuestionnaire.count({ where: { status: 'Completed' } });
+        const totalQCount = await UserQuestionnaire.count();
+        const qCompletionRate = totalQCount ? Math.round((completedQCount / totalQCount) * 100) : 0;
+
+        // --- 2. Vitals Aggregations (Raw SQL for performance) ---
+        // Get the latest vital reading of a specific type per user for cross-sectional analysis
+        // SpO2 Distribution (<90, 90-94, 95-100)
+        const spo2Query = `
+            WITH LatestSpO2 AS (
+                SELECT DISTINCT ON (user_id) vital_value::numeric AS val 
+                FROM user_vitals WHERE vital_type = 'spo2' ORDER BY user_id, recorded_at DESC
+            )
+            SELECT 
+                COUNT(*) FILTER (WHERE val >= 95) AS normal,
+                COUNT(*) FILTER (WHERE val >= 90 AND val < 95) AS low,
+                COUNT(*) FILTER (WHERE val < 90) AS critical,
+                AVG(val) AS avg_spo2
+            FROM LatestSpO2;
+        `;
+        // HR Distribution (<40, 40-59, 60-79, 80-100, 101-120, >120)
+        const hrQuery = `
+            WITH LatestHR AS (
+                SELECT DISTINCT ON (user_id) vital_value::numeric AS val 
+                FROM user_vitals WHERE vital_type = 'heart_rate' ORDER BY user_id, recorded_at DESC
+            )
+            SELECT 
+                COUNT(*) FILTER (WHERE val < 40) AS below_40,
+                COUNT(*) FILTER (WHERE val >= 40 AND val < 60) AS hr_40_59,
+                COUNT(*) FILTER (WHERE val >= 60 AND val < 80) AS hr_60_79,
+                COUNT(*) FILTER (WHERE val >= 80 AND val <= 100) AS hr_80_100,
+                COUNT(*) FILTER (WHERE val > 100 AND val <= 120) AS hr_101_120,
+                COUNT(*) FILTER (WHERE val > 120) AS above_120,
+                AVG(val) AS avg_hr
+            FROM LatestHR;
+        `;
+        // HRV Distribution (avg over last 7d)
+        const hrvQuery = `
+            WITH UserAvgHRV AS (
+                SELECT user_id, AVG(vital_value::numeric) AS avg_val
+                FROM user_vitals WHERE vital_type = 'hrv' AND recorded_at >= NOW() - INTERVAL '7 days'
+                GROUP BY user_id
+            )
+            SELECT 
+                COUNT(*) FILTER (WHERE avg_val < 20) AS below_20,
+                COUNT(*) FILTER (WHERE avg_val >= 20 AND avg_val < 40) AS hrv_20_39,
+                COUNT(*) FILTER (WHERE avg_val >= 40 AND avg_val < 60) AS hrv_40_59,
+                COUNT(*) FILTER (WHERE avg_val >= 60 AND avg_val < 80) AS hrv_60_79,
+                COUNT(*) FILTER (WHERE avg_val >= 80) AS above_80,
+                AVG(avg_val) AS cohort_avg_hrv,
+                COUNT(*) FILTER (WHERE avg_val < 70) AS alert_users
+            FROM UserAvgHRV;
+        `;
+        // Sleep Distribution (avg over last 7d)
+        const sleepQuery = `
+            WITH UserAvgSleep AS (
+                SELECT user_id, AVG(vital_value::numeric) AS avg_val
+                FROM user_vitals WHERE vital_type = 'sleep' AND recorded_at >= NOW() - INTERVAL '7 days'
+                GROUP BY user_id
+            )
+            SELECT 
+                COUNT(*) FILTER (WHERE avg_val < 4) AS below_4,
+                COUNT(*) FILTER (WHERE avg_val >= 4 AND avg_val < 5) AS sleep_4_4_9,
+                COUNT(*) FILTER (WHERE avg_val >= 5 AND avg_val < 6) AS sleep_5_5_9,
+                COUNT(*) FILTER (WHERE avg_val >= 6 AND avg_val < 7) AS sleep_6_6_9,
+                COUNT(*) FILTER (WHERE avg_val >= 7 AND avg_val < 8) AS sleep_7_7_9,
+                COUNT(*) FILTER (WHERE avg_val >= 8) AS above_8,
+                AVG(avg_val) AS cohort_avg_sleep,
+                COUNT(*) FILTER (WHERE avg_val < 4) AS critical_sleep_users
+            FROM UserAvgSleep;
+        `;
+        // Daily Activity (Steps trend 7d)
+        const stepsTrendQuery = `
+            SELECT DATE(recorded_at) AS day, ROUND(AVG(vital_value::numeric)) AS avg_steps
+            FROM user_vitals 
+            WHERE vital_type = 'steps' AND recorded_at >= NOW() - INTERVAL '6 days'
+            GROUP BY DATE(recorded_at) ORDER BY DATE(recorded_at) ASC;
+        `;
+        // Other Physical
+        const physQuery = `
+            SELECT 
+                (SELECT ROUND(AVG(vital_value::numeric)) FROM user_vitals WHERE vital_type = 'calories' AND recorded_at >= NOW() - INTERVAL '1 day') AS avg_calories_daily,
+                (SELECT COUNT(*) FROM (SELECT user_id, SUM(vital_value::numeric) as sums FROM user_vitals WHERE vital_type = 'calories' AND recorded_at >= NOW() - INTERVAL '1 day' GROUP BY user_id) s WHERE sums >= 350) AS targeted_cal_users,
+                (SELECT ROUND(AVG(vital_value::numeric)) FROM user_vitals WHERE vital_type = 'activity_minutes' AND recorded_at >= NOW() - INTERVAL '7 days') AS weekly_avg_minutes
+        `;
+
+        // --- 3. Subscriptions/Programs ---
+        const progQuery = `
+            SELECT program_name, COUNT(*) AS count
+            FROM user_subscriptions
+            WHERE status = 'Active'
+            GROUP BY program_name;
+        `;
+
+        // --- 4. Devices / ABHA ---
+        const deviceQuery = `
+            SELECT 
+                COUNT(*) AS total_devices,
+                COUNT(*) FILTER(WHERE is_connected=true) as connected_devices 
+            FROM user_devices;
+        `;
+
+        // ABHA: count distinct enrolled users (simulates linkage based on active subscriptions)
+        const abhaQuery = `
+            SELECT 
+                COUNT(DISTINCT user_id) FILTER (WHERE status = 'Active') AS linked,
+                COUNT(DISTINCT user_id) AS total
+            FROM user_subscriptions;
+        `;
+
+        // Only count each user once — using their MOST RECENT unresolved alert's vital_type
+        const alertBreakdownQuery = `
+            WITH LatestAlertPerUser AS (
+                SELECT DISTINCT ON (user_id) user_id, vital_type
+                FROM user_alerts
+                WHERE is_resolved = false
+                ORDER BY user_id, created_at DESC
+            )
+            SELECT vital_type, COUNT(user_id) AS count
+            FROM LatestAlertPerUser
+            GROUP BY vital_type;
+        `;
+
+        // --- 6. Education Hub ---
+        const educationQuery = `
+            SELECT 
+                a.category,
+                COUNT(DISTINCT a.id) AS total_articles,
+                COUNT(DISTINCT a.id) FILTER(WHERE a.publish_status = 'published') AS published_count,
+                COUNT(ba.article_id) AS bookmark_count
+            FROM articles a
+            LEFT JOIN bookmarked_articles ba ON ba.article_id = a.id
+            WHERE a.is_deleted = false
+            GROUP BY a.category
+            ORDER BY published_count DESC;
+        `;
+        const articleLibraryQuery = `
+            SELECT
+                COUNT(*) FILTER(WHERE publish_status = 'published') AS published,
+                COUNT(*) FILTER(WHERE publish_status = 'draft') AS draft,
+                COUNT(*) FILTER(WHERE publish_status = 'scheduled') AS scheduled,
+                COUNT(*) AS total,
+                (SELECT COUNT(*) FROM bookmarked_articles) AS total_bookmarks
+            FROM articles WHERE is_deleted = false;
+        `;
+        const topArticlesQuery = `
+            SELECT a.id, a.title, a.category,
+                COUNT(ba.article_id) AS bookmarks
+            FROM articles a
+            LEFT JOIN bookmarked_articles ba ON a.id = ba.article_id
+            WHERE a.is_deleted = false AND a.publish_status = 'published'
+            GROUP BY a.id, a.title, a.category
+            ORDER BY bookmarks DESC
+            LIMIT 5;
+        `;
+
+        // --- 7. DAU (uses last_login_at as proxy for daily activity) ---
+        const dauQuery = `
+            SELECT DATE(last_login_at) AS day, COUNT(DISTINCT id) AS dau
+            FROM users
+            WHERE is_user = true
+              AND last_login_at >= NOW() - INTERVAL '90 days'
+            GROUP BY DATE(last_login_at)
+            ORDER BY day ASC;
+        `;
+
+        // --- Execute Raw Queries ---
+        const [[spo2Rows], [hrRows], [hrvRows], [sleepRows], [stepsTrend], [physRows], [progRows], [deviceRows], [alertBreakdown], [abhaRows], [educationRows], [libraryRows], [topArticleRows], [dauRows]] = await Promise.all([
+            sequelize.query(spo2Query),
+            sequelize.query(hrQuery),
+            sequelize.query(hrvQuery),
+            sequelize.query(sleepQuery),
+            sequelize.query(stepsTrendQuery),
+            sequelize.query(physQuery),
+            sequelize.query(progQuery),
+            sequelize.query(deviceQuery),
+            sequelize.query(alertBreakdownQuery),
+            sequelize.query(abhaQuery),
+            sequelize.query(educationQuery),
+            sequelize.query(articleLibraryQuery),
+            sequelize.query(topArticlesQuery),
+            sequelize.query(dauQuery)
+        ]);
+
+        // Compute avg bookmarks per enrolled user
+        const totalBookmarks = Number(libraryRows[0]?.total_bookmarks || 0);
+        const avgArticlesPerUser = totalUsers > 0 ? (totalBookmarks / totalUsers).toFixed(1) : '0';
+
+        res.json({
+            top_level: {
+                total_enrolled_users: totalUsers,
+                active_users_30d: activeUsersCount,
+                active_alerts: atRiskUsersCount,
+                q_completion_rate: qCompletionRate,
+                average_program_score: 85.5,
+                avg_articles_per_user: avgArticlesPerUser
+            },
+            critical_alerts: {
+                spo2: spo2Rows[0],
+                hr: hrRows[0]
+            },
+            health_risk: {
+                hrv: hrvRows[0],
+                sleep: sleepRows[0]
+            },
+            physical_activity: {
+                steps_trend_7d: stepsTrend,
+                avg_calories_daily: physRows[0]?.avg_calories_daily,
+                targeted_cal_users: physRows[0]?.targeted_cal_users,
+                weekly_avg_minutes: physRows[0]?.weekly_avg_minutes
+            },
+            enrollment: {
+                programs: progRows,
+                devices: deviceRows[0],
+                abha: abhaRows[0]
+            },
+            education: {
+                by_category: educationRows,
+                library: libraryRows[0],
+                top_articles: topArticleRows,
+                total_bookmarks: totalBookmarks,
+                avg_articles_per_user: avgArticlesPerUser
+            },
+            dau_trend: dauRows,
+            at_risk_breakdown: alertBreakdown
+        });
+    } catch (error) {
+        console.error('Dashboard error:', error);
+        res.status(500).json({ error: 'Dashboard error', details: error.message });
+    }
 };
 
 // 8.3 Educational Content Management
@@ -49,19 +276,19 @@ exports.createArticle = async (req, res) => {
         if (scheduled_publish_at) {
             // Schedule for future publish
             payload.scheduled_publish_at = new Date(scheduled_publish_at);
-            payload.is_published  = false;
-            payload.published_at  = null;
+            payload.is_published = false;
+            payload.published_at = null;
             payload.publish_status = 'scheduled';
         } else if (is_published) {
             // Immediate publish
-            payload.is_published  = true;
-            payload.published_at  = new Date();
+            payload.is_published = true;
+            payload.published_at = new Date();
             payload.publish_status = 'published';
             payload.scheduled_publish_at = null;
         } else {
             // Draft
-            payload.is_published  = false;
-            payload.published_at  = null;
+            payload.is_published = false;
+            payload.published_at = null;
             payload.publish_status = 'draft';
             payload.scheduled_publish_at = null;
         }
@@ -83,17 +310,17 @@ exports.updateArticle = async (req, res) => {
 
         if (scheduled_publish_at) {
             payload.scheduled_publish_at = new Date(scheduled_publish_at);
-            payload.is_published  = false;
-            payload.published_at  = null;
+            payload.is_published = false;
+            payload.published_at = null;
             payload.publish_status = 'scheduled';
         } else if (is_published) {
-            payload.is_published  = true;
-            payload.published_at  = new Date();
+            payload.is_published = true;
+            payload.published_at = new Date();
             payload.publish_status = 'published';
             payload.scheduled_publish_at = null;
         } else {
-            payload.is_published  = false;
-            payload.published_at  = null;
+            payload.is_published = false;
+            payload.published_at = null;
             payload.publish_status = 'draft';
             payload.scheduled_publish_at = null;
         }
@@ -141,13 +368,13 @@ exports.getUsers = async (req, res) => {
     let whereClause = { is_user: true };
     if (search) {
         whereClause[Op.or] = [
-            { name:         { [Op.iLike]: `%${search}%` } },
+            { name: { [Op.iLike]: `%${search}%` } },
             { phone_number: { [Op.iLike]: `%${search}%` } }
         ];
     }
-    if (activity_status === 'active')   whereClause.is_active = true;
+    if (activity_status === 'active') whereClause.is_active = true;
     if (activity_status === 'inactive') whereClause.is_active = false;
-    if (enrolled_after)  whereClause.created_at = { ...whereClause.created_at, [Op.gte]: new Date(enrolled_after) };
+    if (enrolled_after) whereClause.created_at = { ...whereClause.created_at, [Op.gte]: new Date(enrolled_after) };
     if (enrolled_before) whereClause.created_at = { ...whereClause.created_at, [Op.lte]: new Date(enrolled_before) };
 
     try {
@@ -176,15 +403,15 @@ exports.getUsers = async (req, res) => {
 // 8.5 User Detail View (full health + vitals + questionnaires + article engagement)
 exports.getUserDetail = async (req, res) => {
     const userId = req.params.id;
-    const days   = parseInt(req.query.days || 7);
-    const since  = new Date(Date.now() - days * 86400000);
+    const days = parseInt(req.query.days || 7);
+    const since = new Date(Date.now() - days * 86400000);
     try {
         const user = await User.findByPk(userId, {
             include: [UserProfile, UserMedicalCondition, UserLifestyle,
-                      { model: UserMedication, required: false },
-                      { model: UserAllergy, required: false },
-                      { model: UserDevice, required: false },
-                      { model: UserSubscription, required: false }]
+                { model: UserMedication, required: false },
+                { model: UserAllergy, required: false },
+                { model: UserDevice, required: false },
+                { model: UserSubscription, required: false }]
         });
         if (!user) return res.status(404).json({ error: 'User not found' });
 
@@ -214,27 +441,25 @@ exports.getAtRiskUsers = async (req, res) => {
             where: { is_resolved: false },
             order: [['created_at', 'DESC']]
         });
-        
-        // Group by user and fetch details
+
         const userMap = {};
         for (const alert of alerts) {
             if (!userMap[alert.user_id]) {
                 const user = await User.findByPk(alert.user_id);
-                // fetch latest HR and SpO2
-                const hr = await UserVital.findOne({ where: { user_id: alert.user_id, vital_type: 'heart_rate' }, order: [['recorded_at', 'DESC']] });
-                const spo2 = await UserVital.findOne({ where: { user_id: alert.user_id, vital_type: 'spo2' }, order: [['recorded_at', 'DESC']] });
-                
+                const sub = await UserSubscription.findOne({ where: { user_id: alert.user_id, status: 'Active' } });
+
                 userMap[alert.user_id] = {
                     user_id: alert.user_id,
                     name: user?.name || 'Unknown User',
-                    spo2: spo2 ? Math.round(spo2.vital_value) + '%' : '98%',
-                    heart_rate: hr ? Math.round(hr.vital_value) + ' bpm' : '128 bpm',
-                    risk_status: '95%',
+                    program: sub?.program_name || 'Unassigned',
+                    vital: alert.vital_type,
+                    message: alert.message,
+                    reading: alert.message.includes(':') ? alert.message.split(':')[1].trim() : alert.message,
                     latest_alertDate: alert.created_at
                 };
             }
         }
-        
+
         res.json({ at_risk_users: Object.values(userMap) });
     } catch (error) {
         console.error(error);
@@ -257,7 +482,7 @@ exports.exportDataset = async (req, res) => {
         // Date filter helper for vitals / questionnaires
         const dateWhere = {};
         if (date_from) dateWhere[Op.gte] = new Date(date_from);
-        if (date_to)   { const d = new Date(date_to); d.setHours(23,59,59,999); dateWhere[Op.lte] = d; }
+        if (date_to) { const d = new Date(date_to); d.setHours(23, 59, 59, 999); dateWhere[Op.lte] = d; }
 
         if (dataset === 'vitals') {
             // allowed vital types mapping to field keys
@@ -269,7 +494,7 @@ exports.exportDataset = async (req, res) => {
             const vitalWhere = { vital_type: { [Op.in]: selectedTypes } };
             if (Object.keys(dateWhere).length) vitalWhere.recorded_at = dateWhere;
 
-            const vitals = await UserVital.findAll({ where: vitalWhere, order: [['user_id','ASC'],['recorded_at','ASC']] });
+            const vitals = await UserVital.findAll({ where: vitalWhere, order: [['user_id', 'ASC'], ['recorded_at', 'ASC']] });
             rowCount = vitals.length;
             fileName = `Vitals_${now.toISOString().split('T')[0]}.csv`;
 
@@ -293,8 +518,8 @@ exports.exportDataset = async (req, res) => {
 
             const baseHeaders = ['User ID', 'Status', 'Overall Score', 'Completed At'];
             const extraHeaders = [];
-            if (!fields.length || fields.includes('domain_scores'))    extraHeaders.push('Domain Scores');
-            if (!fields.length || fields.includes('total_score'))       ; // already in overall_score
+            if (!fields.length || fields.includes('domain_scores')) extraHeaders.push('Domain Scores');
+            if (!fields.length || fields.includes('total_score')); // already in overall_score
             if (!fields.length || fields.includes('individual_responses')) extraHeaders.push('Individual Responses');
             if (!fields.length || fields.includes('submission_timestamps')) extraHeaders.push('Submitted Timestamp');
 
@@ -314,6 +539,24 @@ exports.exportDataset = async (req, res) => {
             csv = includeHeaders.join(',') + '\n';
             subs.forEach(s => {
                 csv += `${s.user_id},"${s.program_name || ''}",${s.status},${s.start_date || ''},${s.expiry_date || ''},"${s.enrolled_by || ''}"\n`;
+            });
+        } else if (dataset === 'users') {
+            const users = await User.findAll({
+                include: [
+                    { model: UserProfile },
+                    { model: UserSubscription }
+                ]
+            });
+            rowCount = users.length;
+            fileName = `UsersList_${now.toISOString().split('T')[0]}.csv`;
+
+            const headers = ['User ID', 'Name', 'Phone', 'Email', 'Active Status', 'Gender', 'Age', 'BMI', 'Enrolled Program'];
+            csv = headers.join(',') + '\n';
+            users.forEach(u => {
+                const profile = u.user_profile || {};
+                const sub = u.user_subscription || {};
+                const age = profile.date_of_birth ? Math.floor((new Date() - new Date(profile.date_of_birth)) / 31557600000) : '';
+                csv += `${u.id},"${u.name || ''}",${u.phone_number || ''},${u.email || ''},${u.is_active ? 'Active' : 'Inactive'},${profile.gender || ''},${age},${profile.bmi || ''},"${sub.program_name || 'None'}"\n`;
             });
         } else {
             return res.status(400).json({ error: 'Invalid dataset type' });
@@ -416,12 +659,12 @@ exports.reactivateSubscription = async (req, res) => {
     try {
         const sub = await UserSubscription.findOne({ where: { user_id: req.params.id } });
         if (!sub) return res.status(404).json({ error: 'No subscription found' });
-        
+
         const start_date = new Date();
         const expiry_date = new Date();
         expiry_date.setDate(start_date.getDate() + (sub.validity_days || 30));
         await sub.update({ start_date, expiry_date, status: 'Active' });
-        
+
         await SubscriptionAuditLog.create({ user_id: req.params.id, admin_id: req.user.id, action: 'REACTIVATED', program_name: sub.program_name, new_status: 'Active' });
         res.json({ message: 'Subscription reactivated', subscription: sub });
     } catch (e) { res.status(500).json({ error: 'Reactivation failed' }); }
@@ -464,7 +707,7 @@ exports.createUserProfile = async (req, res) => {
         await UserProfile.create({
             user_id: userId, date_of_birth: req.body.date_of_birth, gender: req.body.gender,
             height: req.body.height, weight: req.body.weight,
-            bmi: (req.body.weight / ((req.body.height/100) * (req.body.height/100))).toFixed(2)
+            bmi: (req.body.weight / ((req.body.height / 100) * (req.body.height / 100))).toFixed(2)
         }, { transaction });
 
         await UserAuditLog.create({ user_id: userId, admin_id: req.user.id, action_type: 'USER_CREATED', category: 'Personal Info', changes_json: req.body }, { transaction });
@@ -479,16 +722,29 @@ exports.createUserProfile = async (req, res) => {
 
 exports.updateUserProfile = async (req, res) => {
     try {
+        const oldProfile = await UserProfile.findOne({ where: { user_id: req.params.id } });
         await UserProfile.update(req.body, { where: { user_id: req.params.id } });
-        await UserAuditLog.create({ user_id: req.params.id, admin_id: req.user.id, action_type: 'PROFILE_UPDATED', category: 'Personal Info', changes_json: req.body });
+
+        let changes = {};
+        for (const [k, v] of Object.entries(req.body)) {
+            changes[k] = { old: oldProfile ? oldProfile.get(k) : null, new: v };
+        }
+
+        await UserAuditLog.create({ user_id: req.params.id, admin_id: req.user.id, action_type: 'PROFILE_UPDATED', category: 'Personal Info', changes_json: changes });
         res.json({ message: 'Profile updated' });
     } catch (e) { res.status(500).json({ error: 'Update failed' }); }
 };
 
 exports.changeUserStatus = async (req, res) => {
     try {
+        const user = await User.findByPk(req.params.id);
+        const oldStatus = user ? user.is_active : null;
         await User.update({ is_active: req.body.is_active }, { where: { id: req.params.id } });
-        await UserAuditLog.create({ user_id: req.params.id, admin_id: req.user.id, action_type: req.body.is_active ? 'ACTIVATED' : 'DEACTIVATED', category: 'Personal Info', changes_json: req.body });
+
+        let changes = {
+            status: { old: oldStatus ? 'Active' : 'Deactivated', new: req.body.is_active ? 'Active' : 'Deactivated' }
+        };
+        await UserAuditLog.create({ user_id: req.params.id, admin_id: req.user.id, action_type: req.body.is_active ? 'ACTIVATED' : 'DEACTIVATED', category: 'Personal Info', changes_json: changes });
         res.json({ message: `User status changed to ${req.body.is_active}` });
     } catch (e) { res.status(500).json({ error: 'Status update failed' }); }
 };
@@ -497,6 +753,15 @@ exports.updateUserMedicalProfile = async (req, res) => {
     try {
         const { conditions, medications, allergies } = req.body;
         const userId = req.params.id;
+
+        const oldConditions = await UserMedicalCondition.findAll({ where: { user_id: userId } });
+        const oldMedications = await UserMedication.findAll({ where: { user_id: userId } });
+        const oldAllergies = await UserAllergy.findAll({ where: { user_id: userId } });
+
+        let changes = {};
+        if (conditions) changes.conditions = { old: oldConditions.map(c => c.condition_name), new: conditions };
+        if (medications) changes.medications = { old: oldMedications.map(m => m.medication_name), new: medications };
+        if (allergies) changes.allergies = { old: oldAllergies.map(a => a.allergy_name), new: allergies };
 
         if (conditions) {
             await UserMedicalCondition.destroy({ where: { user_id: userId } });
@@ -511,7 +776,7 @@ exports.updateUserMedicalProfile = async (req, res) => {
             await UserAllergy.bulkCreate(allergies.map(a => ({ user_id: userId, allergy_name: a })));
         }
 
-        await UserAuditLog.create({ user_id: userId, admin_id: req.user.id, action_type: 'MEDICAL_PROFILE_UPDATED', category: 'Medical', changes_json: req.body });
+        await UserAuditLog.create({ user_id: userId, admin_id: req.user.id, action_type: 'MEDICAL_PROFILE_UPDATED', category: 'Medical', changes_json: changes });
         res.json({ message: 'Medical profile updated' });
     } catch (e) {
         console.error(e);
@@ -523,12 +788,18 @@ exports.updateUserLifestyle = async (req, res) => {
     try {
         const userId = req.params.id;
         let lifestyle = await UserLifestyle.findOne({ where: { user_id: userId } });
+
+        let changes = {};
+        for (const [k, v] of Object.entries(req.body)) {
+            changes[k] = { old: lifestyle ? lifestyle.get(k) : null, new: v };
+        }
+
         if (lifestyle) {
             await lifestyle.update(req.body);
         } else {
             await UserLifestyle.create({ user_id: userId, ...req.body });
         }
-        await UserAuditLog.create({ user_id: userId, admin_id: req.user.id, action_type: 'LIFESTYLE_UPDATED', category: 'Lifestyle', changes_json: req.body });
+        await UserAuditLog.create({ user_id: userId, admin_id: req.user.id, action_type: 'LIFESTYLE_UPDATED', category: 'Lifestyle', changes_json: changes });
         res.json({ message: 'Lifestyle updated' });
     } catch (e) {
         console.error(e);
@@ -544,7 +815,7 @@ exports.getUserAuditTrail = async (req, res) => {
         if (from || to) {
             where.created_at = {};
             if (from) where.created_at[Op.gte] = new Date(from);
-            if (to) { const d = new Date(to); d.setHours(23,59,59,999); where.created_at[Op.lte] = d; }
+            if (to) { const d = new Date(to); d.setHours(23, 59, 59, 999); where.created_at[Op.lte] = d; }
         }
         const logs = await UserAuditLog.findAll({ where, order: [['created_at', 'DESC']] });
         res.json({ history: logs });
@@ -600,3 +871,234 @@ exports.removeDevice = async (req, res) => {
         res.json({ message: 'Device removed' });
     } catch (e) { res.status(500).json({ error: 'Device removal failed' }); }
 };
+
+// ==================== QUESTIONNAIRE MODULE ====================
+
+exports.getQuestionnaires = async (req, res) => {
+    try {
+        const templates = await QuestionnaireTemplate.findAll({
+            include: [{ model: UserQuestionnaire, attributes: ['id', 'user_id', 'status', 'scheduled_for'] }],
+            order: [['created_at', 'DESC']]
+        });
+
+        const mapped = templates.map(t => {
+            const assignments = t.user_questionnaires || [];
+            // Deduplicate by user_id (for any old duplicate data)
+            const uniqueUserIds = new Set(assignments.map(a => a.user_id));
+            const assignmentCount = uniqueUserIds.size;
+
+            let status = 'Draft';
+            let scheduled_for = null;
+            if (assignmentCount > 0) {
+                const scheduled = assignments.filter(a => a.status === 'Scheduled');
+                if (scheduled.length > 0) {
+                    status = 'Scheduled';
+                    // Pick the most recent scheduled_for
+                    scheduled_for = scheduled.sort((a, b) => new Date(b.scheduled_for) - new Date(a.scheduled_for))[0].scheduled_for;
+                } else {
+                    status = 'Assigned';
+                }
+            }
+
+            return {
+                id: t.id,
+                title: t.title,
+                category: t.category,
+                type: t.type,
+                created_by: t.created_by,
+                scheduled_days_after_enrollment: t.scheduled_days_after_enrollment,
+                status,
+                scheduled_for,
+                assignment_count: assignmentCount,
+                created_at: t.created_at
+            };
+        });
+
+        res.json(mapped);
+    } catch (e) {
+        console.error('getQuestionnaires error:', e);
+        res.status(500).json({ error: e.message, stack: e.stack });
+    }
+};
+
+exports.getQuestionnaireDetail = async (req, res) => {
+    try {
+        const tmpl = await QuestionnaireTemplate.findOne({
+            where: { id: req.params.id },
+            include: [{ model: Question, as: 'questions' }]
+        });
+        if (!tmpl) return res.status(404).json({ error: 'Not found' });
+
+        // Return questions sorted
+        tmpl.questions.sort((a, b) => a.sort_order - b.sort_order);
+        res.json(tmpl);
+    } catch (e) { res.status(500).json({ error: 'Failed to fetch questionnaire' }); }
+};
+
+exports.createQuestionnaire = async (req, res) => {
+    const { title, category, type, questions } = req.body;
+    try {
+        const tmpl = await QuestionnaireTemplate.create({
+            title,
+            category,
+            type: type || 'One-Time',
+            created_by: req.user?.name || 'Admin',
+            scheduled_days_after_enrollment: 0
+        });
+
+        if (questions && questions.length > 0) {
+            const mappedQs = questions.map((q, i) => ({
+                questionnaire_id: tmpl.id,
+                question_text: q.question_text,
+                question_type: q.question_type,
+                options_json: q.options_json || [],
+                sort_order: i
+            }));
+            await Question.bulkCreate(mappedQs);
+        }
+
+        res.json({ message: 'Questionnaire created', id: tmpl.id });
+    } catch (e) { res.status(500).json({ error: e.message, stack: e.stack }); }
+};
+
+exports.updateQuestionnaire = async (req, res) => {
+    const { title, category, type, questions } = req.body;
+    try {
+        await QuestionnaireTemplate.update({ title, category, type }, { where: { id: req.params.id } });
+
+        if (questions) {
+            await Question.destroy({ where: { questionnaire_id: req.params.id } });
+            const mappedQs = questions.map((q, i) => ({
+                questionnaire_id: req.params.id,
+                question_text: q.question_text,
+                question_type: q.question_type,
+                options_json: q.options_json || [],
+                sort_order: i
+            }));
+            await Question.bulkCreate(mappedQs);
+        }
+        res.json({ message: 'Questionnaire updated' });
+    } catch (e) { res.status(500).json({ error: 'Update failed' }); }
+};
+
+exports.deleteQuestionnaire = async (req, res) => {
+    try {
+        await QuestionnaireTemplate.destroy({ where: { id: req.params.id } });
+        res.json({ message: 'Questionnaire deleted' });
+    } catch (e) { res.status(500).json({ error: 'Deletion failed' }); }
+};
+
+exports.getQuestionnaireTargetUsers = async (req, res) => {
+    try {
+        const tmpl = await QuestionnaireTemplate.findByPk(req.params.id);
+        if (!tmpl) return res.status(404).json({ error: 'Template not found' });
+
+        // Fetch all active users with their sub & vital logs
+        const users = await User.findAll({
+            where: { is_active: true },
+            include: [
+                { model: UserSubscription, required: false },
+                { model: UserVital, required: false, order: [['recorded_at', 'DESC']], limit: 5 }
+            ]
+        });
+
+        // Also fetch existing assignments for this questionnaire
+        const existing = await UserQuestionnaire.findAll({
+            where: { questionnaire_id: req.params.id },
+            attributes: ['user_id', 'status', 'scheduled_for']
+        });
+        const assignedUserIds = existing.map(a => a.user_id);
+        // Pick the most recent scheduled_for from any scheduled assignment
+        const scheduledEntries = existing.filter(a => a.scheduled_for);
+        let existingScheduledFor = null;
+        if (scheduledEntries.length > 0) {
+            existingScheduledFor = scheduledEntries.sort(
+                (a, b) => new Date(b.scheduled_for) - new Date(a.scheduled_for)
+            )[0].scheduled_for;
+        }
+
+        const record = (u, sub) => ({ id: u.id, name: u.name, phone: u.phone_number, program: sub ? sub.program_name : null });
+        const highPriority = [];
+        const mandatory = [];
+        const allUsers = [];
+        users.forEach(u => {
+            const sub = u.user_subscription;
+            let needsHighPriority = false;
+            let needsMandatory = false;
+
+            if (sub && sub.status === 'Active') {
+                if (tmpl.category && sub.program_name && sub.program_name.toLowerCase().includes(tmpl.category.toLowerCase())) {
+                    needsHighPriority = true;
+                    needsMandatory = true;
+                }
+            }
+
+            const vitals = u.user_vitals || [];
+            if (!needsHighPriority) {
+                const spo2 = vitals.find(v => v.vital_type === 'spo2');
+                const hr = vitals.find(v => v.vital_type === 'heart_rate');
+                if ((spo2 && spo2.vital_value < 95) || (hr && hr.vital_value > 100)) {
+                    needsHighPriority = true;
+                }
+            }
+
+            if (needsHighPriority) highPriority.push(record(u, sub));
+            if (needsMandatory) mandatory.push(record(u, sub));
+            allUsers.push(record(u, sub));
+        });
+
+        res.json({ highPriority, mandatory, allUsers, assignedUserIds, existingScheduledFor });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed target analysis' });
+    }
+};
+
+exports.assignQuestionnaire = async (req, res) => {
+    const { userIds, scheduled_for, priority, is_mandatory } = req.body;
+    try {
+        if (!userIds || userIds.length === 0) return res.status(400).json({ error: 'No users selected' });
+
+        const qId = req.params.id;
+
+        // Parse scheduled_for properly — treat as local time if no timezone offset given
+        let scheduledTs = null;
+        if (scheduled_for) {
+            scheduledTs = new Date(scheduled_for);
+            if (isNaN(scheduledTs.getTime())) scheduledTs = null;
+        }
+
+        const newStatus = scheduledTs ? 'Scheduled' : 'Pending';
+
+        // Upsert: update if (user_id, questionnaire_id) already exists, else insert
+        for (const uid of userIds) {
+            const existing = await UserQuestionnaire.findOne({
+                where: { user_id: uid, questionnaire_id: qId }
+            });
+            if (existing) {
+                // Update the existing assignment instead of creating a duplicate
+                await existing.update({
+                    status: newStatus,
+                    scheduled_for: scheduledTs,
+                    priority: priority || existing.priority,
+                    is_mandatory: is_mandatory !== undefined ? !!is_mandatory : existing.is_mandatory
+                });
+            } else {
+                await UserQuestionnaire.create({
+                    user_id: uid,
+                    questionnaire_id: qId,
+                    status: newStatus,
+                    scheduled_for: scheduledTs,
+                    priority: priority || 'Normal',
+                    is_mandatory: !!is_mandatory
+                });
+            }
+        }
+
+        res.json({ message: 'Questionnaires successfully assigned' });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to assign questionnaires' });
+    }
+};
+
