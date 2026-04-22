@@ -188,8 +188,32 @@ exports.getCohortDashboard = async (req, res) => {
             ORDER BY day ASC;
         `;
 
+        // --- 8. Questionnaire Performance ---
+        const questStatsQuery = `
+            SELECT 
+                COUNT(*) FILTER (WHERE status = 'Completed' AND DATE(completed_at) = CURRENT_DATE) as completed_today,
+                COUNT(*) FILTER (WHERE status != 'Completed' AND scheduled_for < CURRENT_DATE) as overdue
+            FROM user_questionnaires;
+        `;
+        const questCategoryQuery = `
+            SELECT t.title as name, COUNT(DISTINCT u.user_id) as value
+            FROM questionnaire_templates t
+            LEFT JOIN user_questionnaires u ON t.id = u.questionnaire_id AND u.status = 'Completed'
+            GROUP BY t.id, t.title
+            ORDER BY value DESC
+            LIMIT 5;
+        `;
+        const questDomainQuery = `
+            SELECT 
+                key as domain, 
+                ROUND(AVG(CAST(value AS numeric))) as score
+            FROM user_questionnaire_scores,
+            jsonb_each_text(domain_scores_json)
+            GROUP BY key;
+        `;
+
         // --- Execute Raw Queries ---
-        const [[spo2Rows], [hrRows], [hrvRows], [sleepRows], [stepsTrend], [physRows], [progRows], [deviceRows], [alertBreakdown], [abhaRows], [educationRows], [libraryRows], [topArticleRows], [dauRows]] = await Promise.all([
+        const [[spo2Rows], [hrRows], [hrvRows], [sleepRows], [stepsTrend], [physRows], [progRows], [deviceRows], [alertBreakdown], [abhaRows], [educationRows], [libraryRows], [topArticleRows], [dauRows], [questStatsRows], [questCategoryRows], [questDomainRows]] = await Promise.all([
             sequelize.query(spo2Query),
             sequelize.query(hrQuery),
             sequelize.query(hrvQuery),
@@ -203,7 +227,10 @@ exports.getCohortDashboard = async (req, res) => {
             sequelize.query(educationQuery),
             sequelize.query(articleLibraryQuery),
             sequelize.query(topArticlesQuery),
-            sequelize.query(dauQuery)
+            sequelize.query(dauQuery),
+            sequelize.query(questStatsQuery),
+            sequelize.query(questCategoryQuery),
+            sequelize.query(questDomainQuery)
         ]);
 
         // Compute avg bookmarks per enrolled user
@@ -244,6 +271,13 @@ exports.getCohortDashboard = async (req, res) => {
                 top_articles: topArticleRows,
                 total_bookmarks: totalBookmarks,
                 avg_articles_per_user: avgArticlesPerUser
+            },
+            questionnaires: {
+                completed_today: Number(questStatsRows[0]?.completed_today || 0),
+                overdue: Number(questStatsRows[0]?.overdue || 0),
+                completion_rate: qCompletionRate,
+                by_type: questCategoryRows.map(r => ({ name: r.name, value: Number(r.value) })),
+                domain_scores: questDomainRows.map(r => ({ domain: r.domain, score: Number(r.score) }))
             },
             dau_trend: dauRows,
             at_risk_breakdown: alertBreakdown
