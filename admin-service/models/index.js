@@ -131,8 +131,10 @@ const UserDevice = sequelize.define('user_device', {
     mac_address: { type: DataTypes.STRING(50) },
     nickname: { type: DataTypes.STRING(255) },
     assigned_by: { type: DataTypes.STRING(255) },
-    assigned_at: { type: DataTypes.DATE }
-}, { tableName: 'user_devices', timestamps: false });
+    assigned_at: { type: DataTypes.DATE },
+    is_connected: { type: DataTypes.BOOLEAN, defaultValue: true },
+    last_connected_at: { type: DataTypes.DATE }
+}, { tableName: 'user_devices', timestamps: true, createdAt: 'created_at', updatedAt: false });
 
 const UserSubscription = sequelize.define('user_subscription', {
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },

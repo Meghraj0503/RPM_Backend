@@ -13,10 +13,11 @@ const sequelize = new Sequelize(
 });
 
 const QuestionnaireTemplate = sequelize.define('questionnaire_template', {
-    id: { type: DataTypes.STRING(20), primaryKey: true },
+    id: { type: DataTypes.STRING(20), primaryKey: true, defaultValue: Sequelize.literal("'QST-' || nextval('qst_seq')") },
     title: { type: DataTypes.STRING },
     category: { type: DataTypes.STRING },
     type: { type: DataTypes.STRING(50), defaultValue: 'One-Time' },
+    created_by: { type: DataTypes.STRING(255) },
     scheduled_days_after_enrollment: { type: DataTypes.INTEGER }
 }, { tableName: 'questionnaire_templates', timestamps: true, createdAt: 'created_at', updatedAt: false });
 

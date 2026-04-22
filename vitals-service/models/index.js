@@ -40,16 +40,16 @@ const UserAlert = sequelize.define('user_alert', {
 }, { tableName: 'user_alerts', timestamps: true, createdAt: 'created_at', updatedAt: false });
 
 const UserDevice = sequelize.define('user_device', {
-    id: { 
-        type: DataTypes.INTEGER, 
-        primaryKey: true,
-        autoIncrement: true
-    },
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     user_id: { type: DataTypes.STRING(20) },
-    device_name: { type: DataTypes.STRING(100) },
+    device_name: { type: DataTypes.STRING(255) },
     mac_address: { type: DataTypes.STRING(50) },
+    nickname: { type: DataTypes.STRING(255) },
+    assigned_by: { type: DataTypes.STRING(255) },
+    assigned_at: { type: DataTypes.DATE },
+    is_connected: { type: DataTypes.BOOLEAN, defaultValue: true },
     last_connected_at: { type: DataTypes.DATE },
-    status: { type: DataTypes.STRING(20), defaultValue: 'Connected' }
+    status: { type: DataTypes.STRING(20), defaultValue: 'Connected' } // Legacy column in model
 }, { tableName: 'user_devices', timestamps: true, createdAt: 'created_at', updatedAt: false });
 
 const UserSubscription = sequelize.define('user_subscription', {
