@@ -62,3 +62,35 @@ exports.getDashboard = async (req, res) => {
         res.status(500).json({ error: 'Server error' });
     }
 };
+
+exports.updateSyncStatus = async (req, res) => {
+    const userId = req.user.id;
+    const syncTime = req.body.sync_time ? new Date(req.body.sync_time) : new Date();
+    try {
+        const [syncRecord] = await sequelize.models.user_sync_log.upsert({
+            user_id: userId,
+            last_synced_at: syncTime
+        });
+        return res.status(200).json({ 
+            message: 'Sync timestamp updated successfully',
+            last_synced_at: syncRecord.last_synced_at 
+        });
+    } catch (error) {
+        console.error('Error updating sync status:', error);
+        return res.status(500).json({ error: 'Failed to update sync timestamp' });
+    }
+};
+
+exports.getSyncStatus = async (req, res) => {
+    const userId = req.user.id;
+    try {
+        const syncRecord = await sequelize.models.user_sync_log.findOne({ where: { user_id: userId } });
+        if (!syncRecord) {
+            return res.status(200).json({ user_id: userId, last_synced_at: null });
+        }
+        return res.status(200).json({ user_id: syncRecord.user_id, last_synced_at: syncRecord.last_synced_at });
+    } catch (error) {
+        console.error('Error fetching sync status:', error);
+        return res.status(500).json({ error: 'Failed to fetch sync status' });
+    }
+};

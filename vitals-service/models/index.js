@@ -60,4 +60,9 @@ const UserSubscription = sequelize.define('user_subscription', {
     validity_days: { type: DataTypes.INTEGER }
 }, { tableName: 'user_subscriptions', timestamps: false });
 
-module.exports = { sequelize, UserVital, UserAlert, UserDevice, UserSubscription };
+const UserSyncLog = sequelize.define('user_sync_log', {
+    user_id: { type: DataTypes.STRING(20), primaryKey: true, allowNull: false },
+    last_synced_at: { type: DataTypes.DATE, allowNull: false, defaultValue: Sequelize.NOW }
+}, { tableName: 'user_sync_logs', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
+
+module.exports = { sequelize, UserVital, UserAlert, UserDevice, UserSubscription, UserSyncLog };
