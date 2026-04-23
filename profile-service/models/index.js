@@ -3,8 +3,8 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const sequelize = new Sequelize(
-    process.env.DB_NAME || 'remote_patient_monitor', 
-    process.env.DB_USER || 'postgres', 
+    process.env.DB_NAME || 'remote_patient_monitor',
+    process.env.DB_USER || 'postgres',
     process.env.DB_PASSWORD || 'postgres', {
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 5432,
@@ -21,11 +21,11 @@ const UserProfile = sequelize.define('user_profile', {
     user_id: { type: DataTypes.STRING(20), primaryKey: true },
     date_of_birth: DataTypes.DATEONLY,
     gender: DataTypes.STRING(20),
-    height: DataTypes.DECIMAL(5,2),
+    height: DataTypes.DECIMAL(5, 2),
     height_unit: DataTypes.STRING(10),
-    weight: DataTypes.DECIMAL(5,2),
+    weight: DataTypes.DECIMAL(5, 2),
     weight_unit: DataTypes.STRING(10),
-    bmi: DataTypes.DECIMAL(5,2),
+    bmi: DataTypes.DECIMAL(5, 2),
     is_personal_setup: { type: DataTypes.BOOLEAN, defaultValue: false },
     is_medical_setup: { type: DataTypes.BOOLEAN, defaultValue: false },
     is_lifestyle_setup: { type: DataTypes.BOOLEAN, defaultValue: false },
@@ -53,24 +53,26 @@ const UserLifestyle = sequelize.define('user_lifestyle', {
     user_id: { type: DataTypes.STRING(20), primaryKey: true },
     diet_type: DataTypes.STRING(50),
     physical_activity_level: DataTypes.STRING(50),
-    average_sleep_hours: DataTypes.DECIMAL(4,2),
+    average_sleep_hours: DataTypes.DECIMAL(4, 2),
     smoking_status: DataTypes.STRING(50),
     alcohol_consumption: DataTypes.STRING(50),
 }, { tableName: 'user_lifestyle', timestamps: true, createdAt: false, updatedAt: 'updated_at' });
 
 const UserSettings = sequelize.define('user_setting', {
     user_id: { type: DataTypes.STRING(20), primaryKey: true },
-    push_notifications: { type: DataTypes.BOOLEAN, defaultValue: true },
+    push_notifications_enabled: { type: DataTypes.BOOLEAN, defaultValue: true },
+    email_notifications_enabled: { type: DataTypes.BOOLEAN, defaultValue: true },
     app_version: { type: DataTypes.STRING(50) }
-}, { tableName: 'user_settings', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
+}, { tableName: 'user_settings', timestamps: true, createdAt: false, updatedAt: 'updated_at' });
 
-const ConsentLog = sequelize.define('consent_log', {
+const UserConsent = sequelize.define('user_consent', {
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     user_id: { type: DataTypes.STRING(20) },
     consent_version: { type: DataTypes.STRING(50), allowNull: false },
     status: { type: DataTypes.STRING(50), defaultValue: 'Accepted' },
-    ip_address: { type: DataTypes.STRING(100) }
-}, { tableName: 'consent_logs', timestamps: true, createdAt: 'created_at', updatedAt: false });
+    ip_address: { type: DataTypes.STRING(100) },
+    created_at: { type: DataTypes.DATE, defaultValue: Sequelize.literal('CURRENT_TIMESTAMP') }
+}, { tableName: 'user_consents', timestamps: false });
 
 const DataDeletionRequest = sequelize.define('data_deletion_request', {
     user_id: { type: DataTypes.STRING(20), primaryKey: true },
@@ -78,4 +80,4 @@ const DataDeletionRequest = sequelize.define('data_deletion_request', {
     requested_at: { type: DataTypes.DATE, defaultValue: Sequelize.NOW }
 }, { tableName: 'data_deletion_requests', timestamps: false });
 
-module.exports = { sequelize, User, UserProfile, UserMedicalCondition, UserMedication, UserAllergy, UserLifestyle, UserSettings, ConsentLog, DataDeletionRequest };
+module.exports = { sequelize, User, UserProfile, UserMedicalCondition, UserMedication, UserAllergy, UserLifestyle, UserSettings, UserConsent, DataDeletionRequest };

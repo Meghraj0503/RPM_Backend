@@ -4,8 +4,8 @@ const defineAdminUser = require('./adminUser');
 dotenv.config();
 
 const sequelize = new Sequelize(
-    process.env.DB_NAME || 'remote_patient_monitor', 
-    process.env.DB_USER || 'postgres', 
+    process.env.DB_NAME || 'remote_patient_monitor',
+    process.env.DB_USER || 'postgres',
     process.env.DB_PASSWORD || 'postgres', {
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 5432,
@@ -29,21 +29,21 @@ const UserProfile = sequelize.define('user_profile', {
     user_id: { type: DataTypes.STRING(20), primaryKey: true },
     date_of_birth: DataTypes.DATEONLY,
     gender: DataTypes.STRING(20),
-    height: DataTypes.DECIMAL(5,2),
-    weight: DataTypes.DECIMAL(5,2),
-    bmi: DataTypes.DECIMAL(5,2)
+    height: DataTypes.DECIMAL(5, 2),
+    weight: DataTypes.DECIMAL(5, 2),
+    bmi: DataTypes.DECIMAL(5, 2)
 }, { tableName: 'user_profiles', timestamps: false });
 
 const UserVital = sequelize.define('user_vital', {
-    id: { type: DataTypes.STRING(25), primaryKey: true },
+    id: { type: DataTypes.STRING(25), primaryKey: true, defaultValue: Sequelize.literal("'VIT-' || nextval('vital_seq')") },
     user_id: { type: DataTypes.STRING(20) },
     vital_type: { type: DataTypes.STRING(50) },
-    vital_value: { type: DataTypes.DECIMAL(10,2) },
+    vital_value: { type: DataTypes.DECIMAL(10, 2) },
     recorded_at: { type: DataTypes.DATE }
 }, { tableName: 'user_vitals', timestamps: false });
 
 const UserAlert = sequelize.define('user_alert', {
-    id: { type: DataTypes.STRING(20), primaryKey: true },
+    id: { type: DataTypes.STRING(20), primaryKey: true, defaultValue: Sequelize.literal("'ALR-' || nextval('alert_seq')") },
     user_id: { type: DataTypes.STRING(20) },
     vital_type: { type: DataTypes.STRING(50) },
     message: { type: DataTypes.TEXT },
@@ -78,8 +78,14 @@ const UserQuestionnaire = sequelize.define('user_questionnaire', {
     priority: { type: DataTypes.STRING(50), defaultValue: 'Normal' },
     is_mandatory: { type: DataTypes.BOOLEAN, defaultValue: false },
     completed_at: { type: DataTypes.DATE },
-    overall_score: { type: DataTypes.DECIMAL(5,2) }
+    overall_score: { type: DataTypes.DECIMAL(5, 2) }
 }, { tableName: 'user_questionnaires', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
+
+const UserQuestionnaireScore = sequelize.define('user_questionnaire_score', {
+    user_questionnaire_id: { type: DataTypes.STRING(20), primaryKey: true },
+    overall_score: { type: DataTypes.DECIMAL(5, 2) },
+    domain_scores_json: { type: DataTypes.JSONB, allowNull: false }
+}, { tableName: 'user_questionnaire_scores', timestamps: false });
 
 const Article = sequelize.define('article', {
     id: { type: DataTypes.STRING(20), primaryKey: true, defaultValue: Sequelize.literal("'ART-' || nextval('article_seq')") },
@@ -96,8 +102,9 @@ const Article = sequelize.define('article', {
 }, { tableName: 'articles', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
 const ManagerAssignedUser = sequelize.define('manager_assigned_user', {
-    manager_id: { type: DataTypes.STRING(20) },
-    user_id: { type: DataTypes.STRING(20) }
+    manager_id: { type: DataTypes.STRING(20), primaryKey: true },
+    user_id: { type: DataTypes.STRING(20), primaryKey: true },
+    assigned_at: { type: DataTypes.DATE, defaultValue: Sequelize.literal('CURRENT_TIMESTAMP') }
 }, { tableName: 'manager_assigned_users', timestamps: false });
 
 // Profile Detail Models
@@ -125,7 +132,7 @@ const UserLifestyle = sequelize.define('user_lifestyle', {
 }, { tableName: 'user_lifestyle', timestamps: false });
 
 const UserDevice = sequelize.define('user_device', {
-    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    id: { type: DataTypes.STRING(20), primaryKey: true, defaultValue: Sequelize.literal("'DEV-' || nextval('device_seq')") },
     user_id: { type: DataTypes.STRING(20) },
     device_name: { type: DataTypes.STRING(255) },
     mac_address: { type: DataTypes.STRING(50) },
@@ -212,4 +219,7 @@ UserQuestionnaire.belongsTo(User, { foreignKey: 'user_id' });
 QuestionnaireTemplate.hasMany(UserQuestionnaire, { foreignKey: 'questionnaire_id' });
 UserQuestionnaire.belongsTo(QuestionnaireTemplate, { foreignKey: 'questionnaire_id' });
 
-module.exports = { sequelize, AdminUser, User, UserProfile, UserVital, UserAlert, QuestionnaireTemplate, Question, UserQuestionnaire, Article, ManagerAssignedUser, UserMedicalCondition, UserMedication, UserAllergy, UserLifestyle, UserDevice, UserSubscription, SubscriptionAuditLog, DashboardConfig, UserAuditLog, ExportHistory };
+UserQuestionnaire.hasOne(UserQuestionnaireScore, { foreignKey: 'user_questionnaire_id', as: 'scores' });
+UserQuestionnaireScore.belongsTo(UserQuestionnaire, { foreignKey: 'user_questionnaire_id' });
+
+module.exports = { sequelize, AdminUser, User, UserProfile, UserVital, UserAlert, QuestionnaireTemplate, Question, UserQuestionnaire, UserQuestionnaireScore, Article, ManagerAssignedUser, UserMedicalCondition, UserMedication, UserAllergy, UserLifestyle, UserDevice, UserSubscription, SubscriptionAuditLog, DashboardConfig, UserAuditLog, ExportHistory };

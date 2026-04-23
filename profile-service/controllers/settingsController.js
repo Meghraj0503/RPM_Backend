@@ -1,4 +1,4 @@
-const { UserProfile, UserSettings, ConsentLog, DataDeletionRequest, User } = require('../models');
+const { UserProfile, UserSettings, UserConsent, DataDeletionRequest, User } = require('../models');
 
 exports.getSettings = async (req, res) => {
     const userId = req.user.id;
@@ -32,7 +32,7 @@ exports.provideConsent = async (req, res) => {
     const userId = req.user.id;
     const { consentVersion, ipAddress } = req.body;
     try {
-        await ConsentLog.create({
+        await UserConsent.create({
             user_id: userId,
             consent_version: consentVersion || 'v1.0',
             status: 'Accepted',

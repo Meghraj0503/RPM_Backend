@@ -3,8 +3,8 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const sequelize = new Sequelize(
-    process.env.DB_NAME || 'remote_patient_monitor', 
-    process.env.DB_USER || 'postgres', 
+    process.env.DB_NAME || 'remote_patient_monitor',
+    process.env.DB_USER || 'postgres',
     process.env.DB_PASSWORD || 'postgres', {
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 5432,
@@ -13,8 +13,8 @@ const sequelize = new Sequelize(
 });
 
 const Article = sequelize.define('article', {
-    id: { 
-        type: DataTypes.STRING(20), 
+    id: {
+        type: DataTypes.STRING(20),
         primaryKey: true,
         defaultValue: Sequelize.literal("'ART-' || nextval('article_seq')")
     },
@@ -30,9 +30,9 @@ const Article = sequelize.define('article', {
     published_at: { type: DataTypes.DATE }
 }, { tableName: 'articles', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
-const Bookmark = sequelize.define('bookmark_article', {
+const Bookmark = sequelize.define('bookmarked_article', {
     user_id: { type: DataTypes.STRING(20), primaryKey: true },
     article_id: { type: DataTypes.STRING(20), primaryKey: true },
-}, { tableName: 'bookmark_articles', timestamps: true, createdAt: 'created_at', updatedAt: false });
+}, { tableName: 'bookmarked_articles', timestamps: true, createdAt: 'created_at', updatedAt: false });
 
 module.exports = { sequelize, Article, Bookmark };

@@ -3,8 +3,8 @@ const dotenv = require('dotenv');
 dotenv.config();
 
 const sequelize = new Sequelize(
-    process.env.DB_NAME || 'remote_patient_monitor', 
-    process.env.DB_USER || 'postgres', 
+    process.env.DB_NAME || 'remote_patient_monitor',
+    process.env.DB_USER || 'postgres',
     process.env.DB_PASSWORD || 'postgres', {
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 5432,
@@ -13,14 +13,14 @@ const sequelize = new Sequelize(
 });
 
 const UserVital = sequelize.define('user_vital', {
-    id: { 
-        type: DataTypes.STRING(25), 
+    id: {
+        type: DataTypes.STRING(25),
         primaryKey: true,
         defaultValue: Sequelize.literal("'VIT-' || nextval('vital_seq')")
     },
     user_id: { type: DataTypes.STRING(20) },
     vital_type: { type: DataTypes.STRING(50), allowNull: false },
-    vital_value: { type: DataTypes.DECIMAL(10,2), allowNull: false },
+    vital_value: { type: DataTypes.DECIMAL(10, 2), allowNull: false },
     vital_unit: { type: DataTypes.STRING(20) },
     is_manual: { type: DataTypes.BOOLEAN, defaultValue: false },
     source: { type: DataTypes.STRING(100) },
@@ -28,8 +28,8 @@ const UserVital = sequelize.define('user_vital', {
 }, { tableName: 'user_vitals', timestamps: true, createdAt: 'created_at', updatedAt: false });
 
 const UserAlert = sequelize.define('user_alert', {
-    id: { 
-        type: DataTypes.STRING(20), 
+    id: {
+        type: DataTypes.STRING(20),
         primaryKey: true,
         defaultValue: Sequelize.literal("'ALR-' || nextval('alert_seq')")
     },
