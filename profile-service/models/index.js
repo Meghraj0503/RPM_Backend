@@ -56,7 +56,7 @@ const UserLifestyle = sequelize.define('user_lifestyle', {
     average_sleep_hours: DataTypes.DECIMAL(4, 2),
     smoking_status: DataTypes.STRING(50),
     alcohol_consumption: DataTypes.STRING(50),
-}, { tableName: 'user_lifestyle', timestamps: true, createdAt: false, updatedAt: 'updated_at' });
+}, { tableName: 'user_lifestyle', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
 const UserSettings = sequelize.define('user_setting', {
     user_id: { type: DataTypes.STRING(20), primaryKey: true },
