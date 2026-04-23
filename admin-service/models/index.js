@@ -109,19 +109,22 @@ const ManagerAssignedUser = sequelize.define('manager_assigned_user', {
 
 // Profile Detail Models
 const UserMedicalCondition = sequelize.define('user_medical_condition', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     user_id: { type: DataTypes.STRING(20) },
-    condition_name: { type: DataTypes.STRING }
-}, { tableName: 'user_medical_conditions', timestamps: false });
+    condition_name: { type: DataTypes.STRING(255), allowNull: false }
+}, { tableName: 'user_medical_conditions', timestamps: true, createdAt: 'created_at', updatedAt: false });
 
 const UserMedication = sequelize.define('user_medication', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     user_id: { type: DataTypes.STRING(20) },
-    medication_name: { type: DataTypes.STRING }
-}, { tableName: 'user_medications', timestamps: false });
+    medication_name: { type: DataTypes.STRING(255), allowNull: false }
+}, { tableName: 'user_medications', timestamps: true, createdAt: 'created_at', updatedAt: false });
 
 const UserAllergy = sequelize.define('user_allergy', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     user_id: { type: DataTypes.STRING(20) },
-    allergy_name: { type: DataTypes.STRING }
-}, { tableName: 'user_allergies', timestamps: false });
+    allergy_name: { type: DataTypes.STRING(255), allowNull: false }
+}, { tableName: 'user_allergies', timestamps: true, createdAt: 'created_at', updatedAt: false });
 
 const UserLifestyle = sequelize.define('user_lifestyle', {
     user_id: { type: DataTypes.STRING(20), primaryKey: true },
