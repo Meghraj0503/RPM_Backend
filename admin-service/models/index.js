@@ -129,7 +129,7 @@ const UserLifestyle = sequelize.define('user_lifestyle', {
     physical_activity_level: DataTypes.STRING,
     smoking_status: DataTypes.STRING,
     alcohol_consumption: DataTypes.STRING
-}, { tableName: 'user_lifestyle', timestamps: false });
+}, { tableName: 'user_lifestyle', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
 const UserDevice = sequelize.define('user_device', {
     id: { type: DataTypes.STRING(20), primaryKey: true, defaultValue: Sequelize.literal("'DEV-' || nextval('device_seq')") },

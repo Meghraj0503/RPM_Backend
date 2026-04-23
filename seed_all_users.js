@@ -207,7 +207,7 @@ async function seed() {
   console.log('\n🏃  Lifestyle…');
   for (const [uid, diet, act, sleep, smoke, alc] of LIFESTYLE) {
     await db.query(`
-      INSERT INTO user_lifestyle(user_id,diet_type,physical_activity_level,average_sleep_hours,smoking_status,alcohol_consumption,created_at,updated_at)
+      INSERT INTO user_lifestyle(user_id,diet_type,physical_activity_level,average_sleep_hours,smoking_status,alcohol_consumption,updated_at)
       VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW())
       ON CONFLICT (user_id) DO UPDATE SET
         diet_type=$2,physical_activity_level=$3,average_sleep_hours=$4,smoking_status=$5,alcohol_consumption=$6,updated_at=NOW()
