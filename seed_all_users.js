@@ -142,13 +142,13 @@ const RISK = {
 // ── vital value generators ────────────────────────────────────────────────
 function hrValue(risk, dayIndex) {
   if (risk === 'high_hr' || risk === 'both') {
-    return dayIndex % 5 === 0 ? rndI(90, 105) : rndI(125, 145);   // mostly high
+    return (dayIndex + 2) % 5 === 0 ? rndI(90, 105) : rndI(125, 145);   // mostly high
   }
   return rndI(63, 88);
 }
 function spo2Value(risk, dayIndex) {
   if (risk === 'low_spo2' || risk === 'both') {
-    return dayIndex % 4 === 0 ? rndI(92, 96) : rndI(83, 89);      // mostly low
+    return (dayIndex + 2) % 4 === 0 ? rndI(92, 96) : rndI(83, 89);      // mostly low
   }
   return rndI(96, 100);
 }
