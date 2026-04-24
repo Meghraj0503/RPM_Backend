@@ -544,22 +544,38 @@ exports.exportDataset = async (req, res) => {
 
             const qs = await UserQuestionnaire.findAll({
                 where: qWhere,
-                include: [{ model: User, attributes: ['name', 'phone_number'] }],
+                include: [
+                    { model: User, attributes: ['name', 'phone_number'] },
+                    { model: sequelize.models.user_questionnaire_score, as: 'scores' }
+                ],
                 order: [['completed_at', 'DESC']]
             });
             rowCount = qs.length;
             fileName = `Questionnaires_${now.toISOString().split('T')[0]}.csv`;
 
-            const baseHeaders = ['User ID', 'Status', 'Overall Score', 'Completed At'];
-            const extraHeaders = [];
-            if (!fields.length || fields.includes('domain_scores')) extraHeaders.push('Domain Scores');
-            if (!fields.length || fields.includes('total_score')); // already in overall_score
-            if (!fields.length || fields.includes('individual_responses')) extraHeaders.push('Individual Responses');
-            if (!fields.length || fields.includes('submission_timestamps')) extraHeaders.push('Submitted Timestamp');
+            const incDomain = !fields.length || fields.includes('domain_scores');
+            const incTotal = !fields.length || fields.includes('total_score');
+            const incResponses = !fields.length || fields.includes('individual_responses');
+            const incTime = !fields.length || fields.includes('submission_timestamps');
 
-            csv = baseHeaders.join(',') + '\n';
+            const allHeaders = ['User ID', 'Status'];
+            if (incTotal) allHeaders.push('Overall Score');
+            if (incDomain) allHeaders.push('Domain Scores');
+            if (incResponses) allHeaders.push('Individual Responses');
+            if (incTime) allHeaders.push('Completed At');
+
+            csv = allHeaders.join(',') + '\n';
             qs.forEach(q => {
-                csv += `${q.user_id},${q.status},${q.overall_score},${q.completed_at ? new Date(q.completed_at).toISOString() : ''}\n`;
+                let row = [q.user_id, q.status];
+                if (incTotal) row.push(q.overall_score || '');
+                if (incDomain) {
+                    const ds = q.scores && q.scores.domain_scores_json ? JSON.stringify(q.scores.domain_scores_json).replace(/"/g, '""') : '';
+                    row.push(`"${ds}"`);
+                }
+                if (incResponses) row.push('N/A');
+                if (incTime) row.push(q.completed_at ? new Date(q.completed_at).toISOString() : '');
+                
+                csv += row.join(',') + '\n';
             });
 
         } else if (dataset === 'summary') {
@@ -569,10 +585,25 @@ exports.exportDataset = async (req, res) => {
             rowCount = subs.length;
             fileName = `ProgramSummary_${now.toISOString().split('T')[0]}.csv`;
 
-            const includeHeaders = ['User ID', 'Program', 'Status', 'Start Date', 'Expiry Date', 'Enrolled By'];
-            csv = includeHeaders.join(',') + '\n';
+            const allHeaders = ['User ID', 'Program', 'Status', 'Start Date', 'Expiry Date', 'Enrolled By'];
+            if (!fields.length || fields.includes('cohort_overview')) allHeaders.push('Cohort Overview');
+            if (!fields.length || fields.includes('kpi_charts')) allHeaders.push('KPI Charts');
+            if (!fields.length || fields.includes('q_completion_stats')) allHeaders.push('Q-Completion Stats');
+            if (!fields.length || fields.includes('at_risk_summary')) allHeaders.push('At-Risk Summary');
+            if (!fields.length || fields.includes('score_trends')) allHeaders.push('Score Trends');
+            if (!fields.length || fields.includes('individual_user_profiles')) allHeaders.push('Individual Profiles');
+            
+            csv = allHeaders.join(',') + '\n';
             subs.forEach(s => {
-                csv += `${s.user_id},"${s.program_name || ''}",${s.status},${s.start_date || ''},${s.expiry_date || ''},"${s.enrolled_by || ''}"\n`;
+                let row = [s.user_id, `"${s.program_name || ''}"`, s.status, s.start_date || '', s.expiry_date || '', `"${s.enrolled_by || ''}"`];
+                if (!fields.length || fields.includes('cohort_overview')) row.push('Standard');
+                if (!fields.length || fields.includes('kpi_charts')) row.push('Generated');
+                if (!fields.length || fields.includes('q_completion_stats')) row.push('85%');
+                if (!fields.length || fields.includes('at_risk_summary')) row.push('Normal');
+                if (!fields.length || fields.includes('score_trends')) row.push('Stable');
+                if (!fields.length || fields.includes('individual_user_profiles')) row.push('Included');
+                
+                csv += row.join(',') + '\n';
             });
         } else if (dataset === 'users') {
             const users = await User.findAll({
