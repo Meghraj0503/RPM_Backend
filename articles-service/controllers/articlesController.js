@@ -22,7 +22,7 @@ exports.getArticles = async (req, res) => {
             order: [['published_at', 'DESC']],
             limit: parseInt(limit),
             offset: parseInt(offset),
-            attributes: ['id', 'title', 'author_name', 'category', 'cover_image_url', 'estimated_read_time', 'published_at']
+            attributes: ['id', 'title', 'author_name', 'category', 'cover_image_url', 'estimated_read_time', 'published_at','content']
         });
 
         res.json({ articles, page: parseInt(page) });
