@@ -31,7 +31,7 @@ exports.getBookmarks = async (req, res) => {
 
         const articles = await Article.findAll({
             where: { id: articleIds, is_published: true, is_deleted: false },
-            attributes: ['id', 'title', 'author_name', 'category', 'cover_image_url', 'estimated_read_time', 'published_at']
+            attributes: ['id', 'title', 'author_name', 'category', 'cover_image_url', 'estimated_read_time', 'published_at','content']
         });
         
         res.json({ articles });
