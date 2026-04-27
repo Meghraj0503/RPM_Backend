@@ -47,10 +47,10 @@ exports.searchArticles = async (req, res) => {
                 is_published: true,
                 is_deleted: false,
                 [Op.or]: [
-                    { title:       { [Op.iLike]: `%${q}%` } },
-                    { content:     { [Op.iLike]: `%${q}%` } },
+                    { title: { [Op.iLike]: `%${q}%` } },
+                    { content: { [Op.iLike]: `%${q}%` } },
                     { author_name: { [Op.iLike]: `%${q}%` } },
-                    { category:    { [Op.iLike]: `%${q}%` } },
+                    { category: { [Op.iLike]: `%${q}%` } },
                 ],
             },
             order: [['published_at', 'DESC']],

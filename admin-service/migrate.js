@@ -14,7 +14,8 @@ const initSequences = async () => {
         'uqs_seq START 50000',
         'article_seq START 8000',
         'notif_seq START 900000',
-        'alert_seq START 10000'
+        'alert_seq START 10000',
+        'trn_seq START 1000'
     ];
     for (let seq of sequences) {
         await sequelize.query(`CREATE SEQUENCE IF NOT EXISTS ${seq};`);
@@ -36,7 +37,8 @@ initSequences().then(() => {
         "ALTER TABLE user_alerts ALTER COLUMN id SET DEFAULT 'ALR-' || nextval('alert_seq')::text;",
         "ALTER TABLE user_devices ALTER COLUMN id TYPE VARCHAR(20);",
         "ALTER TABLE user_devices ALTER COLUMN id SET DEFAULT 'DEV-' || nextval('device_seq')::text;",
-        "ALTER TABLE admin_users ALTER COLUMN id SET DEFAULT 'ADM-' || nextval('user_seq')::text;"
+        "ALTER TABLE admin_users ALTER COLUMN id SET DEFAULT 'ADM-' || nextval('user_seq')::text;",
+        "ALTER TABLE training_modules ALTER COLUMN id SET DEFAULT 'TRN-' || nextval('trn_seq')::text;"
     ];
     for (let query of alters) {
         try { await sequelize.query(query); } catch (e) { /* ignore if table doesn't exist locally */ }

@@ -4,11 +4,11 @@
  * - adminRegister : create new admin/manager account (super_admin only)
  */
 const bcrypt = require('bcryptjs');
-const jwt    = require('jsonwebtoken');
+const jwt = require('jsonwebtoken');
 const { AdminUser } = require('../models');
 
-const JWT_SECRET  = process.env.JWT_SECRET  || 'fallback_secret';
-const JWT_EXPIRES = process.env.JWT_EXPIRES  || '8h';
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+const JWT_EXPIRES = process.env.JWT_EXPIRES || '8h';
 
 /* ── POST /api/admin/auth/login ──────────────────────────── */
 exports.adminLogin = async (req, res) => {
@@ -45,8 +45,8 @@ exports.adminLogin = async (req, res) => {
 
         return res.json({
             token,
-            role:  admin.role,
-            name:  admin.name,
+            role: admin.role,
+            name: admin.name,
             email: admin.email,
             message: 'Login successful'
         });

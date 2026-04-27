@@ -93,5 +93,17 @@ router.delete('/questionnaires/:id', adminController.deleteQuestionnaire);
 router.get('/questionnaires/:id/target-users', adminController.getQuestionnaireTargetUsers);
 router.post('/questionnaires/:id/assign', adminController.assignQuestionnaire);
 
+// ==================== TRAINING MODULE BUILDER ====================
+const trainingController = require('../controllers/trainingController');
+
+router.get('/training/categories', trainingController.getCategories);
+router.post('/training/categories', trainingController.createCategory);
+router.get('/training/modules', trainingController.getModules);
+router.post('/training/modules', trainingController.createModule);
+router.get('/training/modules/:id', trainingController.getModuleById);
+router.put('/training/modules/:id', trainingController.updateModule);
+router.put('/training/modules/:id/publish', trainingController.togglePublish);
+router.delete('/training/modules/:id', trainingController.deleteModule);
+
 module.exports = router;
 
