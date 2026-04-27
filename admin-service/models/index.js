@@ -30,7 +30,9 @@ const UserProfile = sequelize.define('user_profile', {
     date_of_birth: DataTypes.DATEONLY,
     gender: DataTypes.STRING(20),
     height: DataTypes.DECIMAL(5, 2),
+    height_unit: DataTypes.STRING(10),
     weight: DataTypes.DECIMAL(5, 2),
+    weight_unit: DataTypes.STRING(10),
     bmi: DataTypes.DECIMAL(5, 2)
 }, { tableName: 'user_profiles', timestamps: false });
 
@@ -278,11 +280,11 @@ TrainingSessionProgress.belongsTo(User, { foreignKey: 'user_id' });
 TrainingSession.hasMany(TrainingSessionProgress, { foreignKey: 'session_id' });
 TrainingSessionProgress.belongsTo(TrainingSession, { foreignKey: 'session_id' });
 
-module.exports = { 
-    sequelize, AdminUser, User, UserProfile, UserVital, UserAlert, 
-    QuestionnaireTemplate, Question, UserQuestionnaire, UserQuestionnaireScore, 
-    Article, ManagerAssignedUser, UserMedicalCondition, UserMedication, 
-    UserAllergy, UserLifestyle, UserDevice, UserSubscription, SubscriptionAuditLog, 
+module.exports = {
+    sequelize, AdminUser, User, UserProfile, UserVital, UserAlert,
+    QuestionnaireTemplate, Question, UserQuestionnaire, UserQuestionnaireScore,
+    Article, ManagerAssignedUser, UserMedicalCondition, UserMedication,
+    UserAllergy, UserLifestyle, UserDevice, UserSubscription, SubscriptionAuditLog,
     DashboardConfig, UserAuditLog, ExportHistory,
     TrainingCategory, TrainingModule, TrainingModuleCategory, TrainingSession, TrainingSessionProgress
 };
