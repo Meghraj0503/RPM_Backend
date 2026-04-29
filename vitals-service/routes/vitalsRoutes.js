@@ -16,7 +16,9 @@ router.post('/sync-status', subscriptionMiddleware, vitalsController.updateSyncS
 // Read-only routes — always available regardless of subscription
 router.get('/sync-status', vitalsController.getSyncStatus);
 router.get('/dashboard', vitalsController.getDashboard);
+router.get('/alerts', vitalsController.getUserAlerts);            // MB-03
 router.get('/device', deviceController.getConnectedDevices);
+router.delete('/device/:deviceId', deviceController.removeDevice); // MB-01
 router.get('/trends', trendController.getVitalsTrends);
 router.get('/export', trendController.exportHealthData);
 

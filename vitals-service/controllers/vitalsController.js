@@ -1,7 +1,21 @@
-const { sequelize, UserVital, UserAlert } = require('../models');
+const { sequelize, UserVital, UserAlert, Notification } = require('../models');
+
+// BUG-03: Write health-alert notification directly to shared DB (avoids cross-service HTTP dependency)
+async function fireAlertNotification(userId, message) {
+    try {
+        await Notification.create({
+            user_id: userId,
+            category: 'health_alert',
+            title: 'Health Alert',
+            message
+        });
+    } catch (e) {
+        console.error('[vitals] Alert notification write failed:', e.message);
+    }
+}
 
 exports.syncVitals = async (req, res) => {
-    const { vitals } = req.body; 
+    const { vitals } = req.body;
     const userId = req.user.id;
     if (!Array.isArray(vitals)) return res.status(400).json({ error: 'Expected an array' });
 
@@ -35,6 +49,12 @@ exports.syncVitals = async (req, res) => {
         }
 
         await transaction.commit();
+
+        // BUG-03 fix: fire notification for each alert after commit (non-blocking)
+        for (const alert of alertsToInsert) {
+            fireAlertNotification(alert.user_id, alert.message);
+        }
+
         res.json({ message: 'Vitals synced successfully' });
     } catch (error) {
         await transaction.rollback();
@@ -47,19 +67,45 @@ exports.getDashboard = async (req, res) => {
     const userId = req.user.id;
     try {
         const vitals = await sequelize.query(`
-            SELECT DISTINCT ON (vital_type) vital_type, vital_value, vital_unit, recorded_at, source, is_manual 
-            FROM user_vitals 
+            SELECT DISTINCT ON (vital_type) vital_type, vital_value, vital_unit, recorded_at, source, is_manual
+            FROM user_vitals
             WHERE user_id = :userId AND recorded_at > NOW() - INTERVAL '24 HOURS'
             ORDER BY vital_type, recorded_at DESC
-        `, { 
-            replacements: { userId }, 
-            type: sequelize.QueryTypes.SELECT 
+        `, {
+            replacements: { userId },
+            type: sequelize.QueryTypes.SELECT
         });
-        
-        res.json({ dashboard: vitals });
+
+        // MB-06: SpO2 min/max/avg for last 24 hours
+        const spo2Stats = await sequelize.query(`
+            SELECT
+                MIN(vital_value::numeric) AS min_spo2,
+                MAX(vital_value::numeric) AS max_spo2,
+                ROUND(AVG(vital_value::numeric), 1) AS avg_spo2
+            FROM user_vitals
+            WHERE user_id = :userId AND vital_type = 'spo2' AND recorded_at > NOW() - INTERVAL '24 HOURS'
+        `, { replacements: { userId }, type: sequelize.QueryTypes.SELECT });
+
+        res.json({ dashboard: vitals, spo2_stats: spo2Stats[0] || {} });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Server error' });
+    }
+};
+
+// MB-03: User-facing alerts endpoint
+exports.getUserAlerts = async (req, res) => {
+    const userId = req.user.id;
+    try {
+        const alerts = await UserAlert.findAll({
+            where: { user_id: userId },
+            order: [['created_at', 'DESC']],
+            limit: 50
+        });
+        res.json({ alerts });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Server error fetching alerts' });
     }
 };
 
@@ -71,9 +117,9 @@ exports.updateSyncStatus = async (req, res) => {
             user_id: userId,
             last_synced_at: syncTime
         });
-        return res.status(200).json({ 
+        return res.status(200).json({
             message: 'Sync timestamp updated successfully',
-            last_synced_at: syncRecord.last_synced_at 
+            last_synced_at: syncRecord.last_synced_at
         });
     } catch (error) {
         console.error('Error updating sync status:', error);

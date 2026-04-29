@@ -25,3 +25,18 @@ exports.getConnectedDevices = async (req, res) => {
         res.status(500).json({ error: 'Server error fetching devices' });
     }
 };
+
+// MB-01: User self-disconnect a device
+exports.removeDevice = async (req, res) => {
+    const userId = req.user.id;
+    const { deviceId } = req.params;
+    try {
+        const device = await UserDevice.findOne({ where: { id: deviceId, user_id: userId } });
+        if (!device) return res.status(404).json({ error: 'Device not found' });
+        await device.destroy();
+        res.json({ message: 'Device disconnected successfully' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Server error removing device' });
+    }
+};

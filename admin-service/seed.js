@@ -9,17 +9,17 @@
  * Change these immediately after first login in production!
  */
 require('dotenv').config();
-const bcrypt        = require('bcryptjs');
+const bcrypt = require('bcryptjs');
 const defineAdminUser = require('./models/adminUser');
 const { Sequelize } = require('sequelize');
 
 const sequelize = new Sequelize(
-    process.env.DB_NAME     || 'remote_patient_monitor',
-    process.env.DB_USER     || 'postgres',
+    process.env.DB_NAME || 'remote_patient_monitor',
+    process.env.DB_USER || 'postgres',
     process.env.DB_PASSWORD || 'postgres',
     {
-        host:    process.env.DB_HOST || 'localhost',
-        port:    process.env.DB_PORT || 5432,
+        host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT || 5432,
         dialect: 'postgres',
         logging: false
     }
@@ -29,16 +29,16 @@ const AdminUser = defineAdminUser(sequelize);
 
 const DEFAULT_ADMINS = [
     {
-        name:     'Super Admin',
-        email:    'admin@aayu.health',
+        name: 'Super Admin',
+        email: 'admin@pillnurse.com',
         password: 'Admin@123',
-        role:     'super_admin'
+        role: 'super_admin'
     },
     {
-        name:     'Program Manager',
-        email:    'manager@aayu.health',
+        name: 'Program Manager',
+        email: 'manager@pillnurse.com',
         password: 'Manager@123',
-        role:     'manager'
+        role: 'manager'
     }
 ];
 
@@ -62,8 +62,8 @@ async function seed() {
 
         console.log('\n🎉  Seed complete!');
         console.log('──────────────────────────────────────────');
-        console.log('  Admin Login   → admin@aayu.health   / Admin@123');
-        console.log('  Manager Login → manager@aayu.health / Manager@123');
+        console.log('  Admin Login   → admin@pillnurse.com  / Admin@123');
+        console.log('  Manager Login → manager@pillnurse.com / Manager@123');
         console.log('──────────────────────────────────────────');
     } catch (err) {
         console.error('❌  Seed failed:', err.message);

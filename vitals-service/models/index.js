@@ -65,4 +65,18 @@ const UserSyncLog = sequelize.define('user_sync_log', {
     last_synced_at: { type: DataTypes.DATE, allowNull: false, defaultValue: Sequelize.NOW }
 }, { tableName: 'user_sync_logs', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
-module.exports = { sequelize, UserVital, UserAlert, UserDevice, UserSubscription, UserSyncLog };
+// Notification model — shared DB, used to fire health-alert inbox entries from vitals-service
+const Notification = sequelize.define('notification', {
+    id: {
+        type: DataTypes.STRING(20),
+        primaryKey: true,
+        defaultValue: Sequelize.literal("'NOT-' || nextval('notif_seq')")
+    },
+    user_id: { type: DataTypes.STRING(20) },
+    category: { type: DataTypes.STRING(100) },
+    title: { type: DataTypes.STRING(255) },
+    message: { type: DataTypes.TEXT },
+    is_read: { type: DataTypes.BOOLEAN, defaultValue: false }
+}, { tableName: 'notifications', timestamps: true, createdAt: 'created_at', updatedAt: false });
+
+module.exports = { sequelize, UserVital, UserAlert, UserDevice, UserSubscription, UserSyncLog, Notification };

@@ -225,7 +225,11 @@ exports.getCohortDashboard = async (req, res) => {
             GROUP BY key;
         `;
 
-        // --- Execute Raw Queries ---
+        // GQ-09: Per-query timeout — wrap each raw query with a 10-second SET statement_timeout
+        const withTimeout = (sql, ms = 10000) =>
+            `SET LOCAL statement_timeout = ${ms}; ${sql}`;
+
+        // --- Execute Raw Queries with timeout guard ---
         const [[spo2Rows], [hrRows], [hrvRows], [sleepRows], [stepsTrend], [physRows], [progRows], [deviceRows], [alertBreakdown], [abhaRows], [educationRows], [libraryRows], [topArticleRows], [dauRows], [trendSummaryRows], [questStatsRows], [questCategoryRows], [questDomainRows]] = await Promise.all([
             sequelize.query(spo2Query),
             sequelize.query(hrQuery),
@@ -397,30 +401,25 @@ exports.unpublishArticle = async (req, res) => {
     } catch (err) { res.status(500).json({ error: 'Unpublish failed' }); }
 };
 
-// ── Scheduled publish runner — checks every 60 seconds ──────────────────────
-const { Op: OpLocal } = require('sequelize');
-setInterval(async () => {
-    try {
-        const due = await Article.findAll({
-            where: {
-                publish_status: 'scheduled',
-                is_published: false,
-                scheduled_publish_at: { [OpLocal.lte]: new Date() }
-            }
-        });
-        for (const art of due) {
-            await art.update({ is_published: true, published_at: new Date(), publish_status: 'published' });
-            console.log(`[Scheduler] Auto-published article ${art.id} "${art.title}"`);
-        }
-    } catch (e) { console.error('[Scheduler] Error:', e.message); }
-}, 60 * 1000); // every 60 seconds
+// Article auto-publish is now handled by the dedicated cron in scheduler.js (GQ-10 fix)
 
 // 8.4 User Management Table (with full filters per requirement)
 exports.getUsers = async (req, res) => {
-    const { search, page = 1, limit = 20, activity_status, q_status, enrolled_after, enrolled_before } = req.query;
+    const { search, device_serial, page = 1, limit = 20, activity_status, q_status, enrolled_after, enrolled_before } = req.query;
     const offset = (page - 1) * limit;
 
     let whereClause = { is_user: true };
+
+    // BUG-02 / MA-07: Program Manager scoping — managers only see their assigned users
+    if (req.user.role === 'manager') {
+        const assignedRows = await sequelize.query(
+            'SELECT user_id FROM manager_assigned_users WHERE manager_id = :managerId',
+            { replacements: { managerId: req.user.id }, type: sequelize.QueryTypes.SELECT }
+        );
+        const assignedIds = assignedRows.map(r => r.user_id);
+        whereClause.id = { [Op.in]: assignedIds.length ? assignedIds : ['__none__'] };
+    }
+
     if (search) {
         whereClause[Op.or] = [
             { name: { [Op.iLike]: `%${search}%` } },
@@ -433,9 +432,19 @@ exports.getUsers = async (req, res) => {
     if (enrolled_before) whereClause.created_at = { ...whereClause.created_at, [Op.lte]: new Date(enrolled_before) };
 
     try {
-        let includeClause = [{ model: UserProfile }];
         let questFilter = {};
         if (q_status) questFilter.status = q_status;
+
+        // MA-02: device serial number search — filter users by device mac_address
+        let deviceUserIds = null;
+        if (device_serial) {
+            const deviceRows = await UserDevice.findAll({
+                where: { mac_address: { [Op.iLike]: `%${device_serial}%` } },
+                attributes: ['user_id']
+            });
+            deviceUserIds = deviceRows.map(d => d.user_id);
+            whereClause.id = { [Op.in]: deviceUserIds.length ? deviceUserIds : ['__none__'] };
+        }
 
         const { rows, count } = await User.findAndCountAll({
             where: whereClause,
@@ -455,11 +464,63 @@ exports.getUsers = async (req, res) => {
     }
 };
 
+// MA-01: Delete user profile (hard delete with confirmation gate)
+exports.deleteUserProfile = async (req, res) => {
+    const userId = req.params.id;
+    const transaction = await sequelize.transaction();
+    try {
+        const user = await User.findByPk(userId);
+        if (!user) return res.status(404).json({ error: 'User not found' });
+        if (!user.is_user) return res.status(400).json({ error: 'Only user profiles can be deleted via this endpoint' });
+
+        // Cascade delete all user data
+        await Promise.all([
+            sequelize.query('DELETE FROM user_responses WHERE user_questionnaire_id IN (SELECT id FROM user_questionnaires WHERE user_id = :uid)', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM user_questionnaire_scores WHERE user_questionnaire_id IN (SELECT id FROM user_questionnaires WHERE user_id = :uid)', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM user_questionnaires WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM user_vitals WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM user_alerts WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM user_devices WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM bookmarked_articles WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM notifications WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM user_subscriptions WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM subscription_audit_logs WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM user_audit_logs WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM user_medical_conditions WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM user_medications WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM user_allergies WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM user_lifestyle WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM user_sync_logs WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM user_settings WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM user_consents WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM data_deletion_requests WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+            sequelize.query('DELETE FROM user_profiles WHERE user_id = :uid', { replacements: { uid: userId }, transaction }),
+        ]);
+        await user.destroy({ transaction });
+        await transaction.commit();
+        res.json({ message: `User ${userId} and all associated data permanently deleted` });
+    } catch (e) {
+        await transaction.rollback();
+        console.error(e);
+        res.status(500).json({ error: 'User deletion failed' });
+    }
+};
+
 // 8.5 User Detail View (full health + vitals + questionnaires + article engagement)
 exports.getUserDetail = async (req, res) => {
     const userId = req.params.id;
     const days = parseInt(req.query.days || 7);
     const since = new Date(Date.now() - days * 86400000);
+
+    // BUG-02: Manager can only see their assigned user
+    if (req.user.role === 'manager') {
+        const [row] = await sequelize.query(
+            'SELECT 1 FROM manager_assigned_users WHERE manager_id = :mid AND user_id = :uid LIMIT 1',
+            { replacements: { mid: req.user.id, uid: userId }, type: sequelize.QueryTypes.SELECT }
+        );
+        if (!row) return res.status(403).json({ error: 'Access denied to this user' });
+    }
+
     try {
         const user = await User.findByPk(userId, {
             include: [UserProfile, UserMedicalCondition, UserLifestyle,
@@ -492,8 +553,19 @@ exports.getUserDetail = async (req, res) => {
 // 8.6 At-Risk Identification
 exports.getAtRiskUsers = async (req, res) => {
     try {
+        const alertWhere = { is_resolved: false };
+        // BUG-02: Manager scoping for at-risk list
+        if (req.user.role === 'manager') {
+            const assignedRows = await sequelize.query(
+                'SELECT user_id FROM manager_assigned_users WHERE manager_id = :managerId',
+                { replacements: { managerId: req.user.id }, type: sequelize.QueryTypes.SELECT }
+            );
+            const assignedIds = assignedRows.map(r => r.user_id);
+            alertWhere.user_id = { [Op.in]: assignedIds.length ? assignedIds : ['__none__'] };
+        }
+
         const alerts = await UserAlert.findAll({
-            where: { is_resolved: false },
+            where: alertWhere,
             order: [['created_at', 'DESC']]
         });
 

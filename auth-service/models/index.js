@@ -33,4 +33,13 @@ const UserProfile = sequelize.define('user_profile', {
     user_id: { type: DataTypes.STRING(20), primaryKey: true }
 }, { tableName: 'user_profiles', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
-module.exports = { sequelize, User, UserProfile };
+// GQ-05: Refresh token store
+const RefreshToken = sequelize.define('refresh_token', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    user_id: { type: DataTypes.STRING(20), allowNull: false },
+    token_hash: { type: DataTypes.STRING(255), allowNull: false, unique: true },
+    expires_at: { type: DataTypes.DATE, allowNull: false },
+    is_revoked: { type: DataTypes.BOOLEAN, defaultValue: false }
+}, { tableName: 'refresh_tokens', timestamps: true, createdAt: 'created_at', updatedAt: false });
+
+module.exports = { sequelize, User, UserProfile, RefreshToken };

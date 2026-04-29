@@ -6,7 +6,9 @@ const authMiddleware = require('../authMiddleware');
 router.use(authMiddleware);
 
 router.get('/', qController.getQuestionnaires);
+router.get('/summary', qController.getQuestionnaireSummary);          // MB-17
 router.post('/:id/submit', qController.submitQuestionnaire);
+router.get('/:id/result', qController.getQuestionnaireResult);        // MB-04
 
 // Dynamic CMS Admin Routes
 router.post('/admin/questions', qController.addQuestion);

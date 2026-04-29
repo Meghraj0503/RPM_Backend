@@ -1,6 +1,11 @@
-const { User, UserProfile } = require('../models');
+const { User, UserProfile, RefreshToken } = require('../models');
 const admin = require('../firebase');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
+
+const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+const ACCESS_TTL = '1h';       // Short-lived access token
+const REFRESH_TTL_DAYS = 30;  // Long-lived refresh token
 
 const authMiddleware = require('../authMiddleware');
 
@@ -39,18 +44,24 @@ exports.verifyOtp = async (req, res) => {
         user.last_login_at = new Date();
         await user.save();
 
-        const sessionToken = jwt.sign(
+        const accessToken = jwt.sign(
             { id: user.id, phoneNumber },
-            process.env.JWT_SECRET || 'fallback_secret',
-            { expiresIn: '7d' }
+            JWT_SECRET,
+            { expiresIn: ACCESS_TTL }
         );
+
+        // GQ-05: Issue refresh token
+        const rawToken = crypto.randomBytes(48).toString('hex');
+        const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+        const expiresAt = new Date(Date.now() + REFRESH_TTL_DAYS * 86400000);
+        await RefreshToken.create({ user_id: user.id, token_hash: tokenHash, expires_at: expiresAt });
+
         return res.json({
             message: 'Authentication successful',
-            token: sessionToken,
-            user: {
-                id: user.id,
-                phone: phoneNumber
-            }
+            token: accessToken,
+            refresh_token: rawToken,
+            expires_in: 3600,
+            user: { id: user.id, phone: phoneNumber }
         });
 
     } catch (error) {
@@ -77,17 +88,59 @@ exports.enableBiometric = async (req, res) => {
 exports.verifyBiometric = async (req, res) => {
     const { sessionToken } = req.body;
     try {
-        const decoded = jwt.verify(sessionToken, process.env.JWT_SECRET || 'fallback_secret');
+        const decoded = jwt.verify(sessionToken, JWT_SECRET);
         const user = await User.findByPk(decoded.id);
         if (!user || !user.biometric_enabled) return res.status(403).json({ error: 'Biometric not enabled for this account' });
         if (user.is_active === false) return res.status(403).json({ error: 'Account deactivated' });
         const newToken = jwt.sign(
-            { id: user.id, phoneNumber: user.phone_number, role: 'user' },
-            process.env.JWT_SECRET || 'fallback_secret',
-            { expiresIn: '7d' }
+            { id: user.id, phoneNumber: user.phone_number },
+            JWT_SECRET,
+            { expiresIn: ACCESS_TTL }
         );
         await user.update({ last_login_at: new Date() });
-        res.json({ message: 'Biometric login successful', token: newToken });
+        res.json({ message: 'Biometric login successful', token: newToken, expires_in: 3600 });
     } catch (e) { res.status(401).json({ error: 'Invalid or expired session token' }); }
+};
+
+// GQ-05: Refresh access token using a valid refresh token
+exports.refreshToken = async (req, res) => {
+    const { refresh_token } = req.body;
+    if (!refresh_token) return res.status(400).json({ error: 'refresh_token is required' });
+    try {
+        const tokenHash = crypto.createHash('sha256').update(refresh_token).digest('hex');
+        const record = await RefreshToken.findOne({
+            where: { token_hash: tokenHash, is_revoked: false }
+        });
+        if (!record) return res.status(401).json({ error: 'Invalid refresh token' });
+        if (new Date() > record.expires_at) {
+            await record.update({ is_revoked: true });
+            return res.status(401).json({ error: 'Refresh token expired. Please log in again.' });
+        }
+        const user = await User.findByPk(record.user_id);
+        if (!user || !user.is_active) return res.status(403).json({ error: 'Account not accessible' });
+
+        const newAccessToken = jwt.sign(
+            { id: user.id, phoneNumber: user.phone_number },
+            JWT_SECRET,
+            { expiresIn: ACCESS_TTL }
+        );
+        res.json({ token: newAccessToken, expires_in: 3600 });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Token refresh failed' });
+    }
+};
+
+// GQ-05: Revoke refresh token (logout)
+exports.logout = async (req, res) => {
+    const { refresh_token } = req.body;
+    if (!refresh_token) return res.json({ message: 'Logged out' });
+    try {
+        const tokenHash = crypto.createHash('sha256').update(refresh_token).digest('hex');
+        await RefreshToken.update({ is_revoked: true }, { where: { token_hash: tokenHash } });
+        res.json({ message: 'Logged out successfully' });
+    } catch (e) {
+        res.status(500).json({ error: 'Logout failed' });
+    }
 };
 

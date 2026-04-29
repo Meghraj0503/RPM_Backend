@@ -74,6 +74,7 @@ router.put('/dashboard/config', adminController.saveDashboardConfig);
 // 8.10 User Profile Management
 router.post('/users', adminController.createUserProfile);
 router.put('/users/:id', adminController.updateUserProfile);
+router.delete('/users/:id', adminController.deleteUserProfile);          // MA-01
 router.put('/users/:id/status', adminController.changeUserStatus);
 router.put('/users/:id/medical-profile', adminController.updateUserMedicalProfile);
 router.put('/users/:id/lifestyle', adminController.updateUserLifestyle);
@@ -92,6 +93,39 @@ router.delete('/questionnaires/:id', adminController.deleteQuestionnaire);
 
 router.get('/questionnaires/:id/target-users', adminController.getQuestionnaireTargetUsers);
 router.post('/questionnaires/:id/assign', adminController.assignQuestionnaire);
+
+// ==================== CONTENT MANAGEMENT (Quotes, Tasks, Announcements, Education) ====================
+const contentController = require('../controllers/contentController');
+
+// MA-05: Quotes
+router.get('/quotes', contentController.getQuotes);
+router.post('/quotes', contentController.createQuote);
+router.put('/quotes/:id', contentController.updateQuote);
+router.delete('/quotes/:id', contentController.deleteQuote);
+
+// MA-04: Wellness Tasks
+router.get('/tasks', contentController.getTasks);
+router.post('/tasks', contentController.createTask);
+router.put('/tasks/:id', contentController.updateTask);
+router.delete('/tasks/:id', contentController.deleteTask);
+
+// MA-03: Announcements
+router.get('/announcements', contentController.getAnnouncements);
+router.post('/announcements', contentController.createAnnouncement);
+router.put('/announcements/:id', contentController.updateAnnouncement);
+router.delete('/announcements/:id', contentController.deleteAnnouncement);
+
+// MB-18/MB-19: Multi-media Education Content
+router.get('/education-contents', contentController.getEducationContents);
+router.post('/education-contents', contentController.createEducationContent);
+router.put('/education-contents/:id', contentController.updateEducationContent);
+router.delete('/education-contents/:id', contentController.deleteEducationContent);
+router.put('/education-contents/:id/publish', contentController.publishEducationContent);
+router.put('/education-contents/:id/unpublish', contentController.unpublishEducationContent);
+
+// MB-22: Data deletion management
+router.get('/data-deletion-requests', contentController.getPendingDeletionRequests);
+router.post('/data-deletion-requests/:user_id/execute', contentController.executeDataDeletion);
 
 // ==================== TRAINING MODULE BUILDER ====================
 const trainingController = require('../controllers/trainingController');

@@ -237,6 +237,52 @@ const TrainingSessionProgress = sequelize.define('training_session_progress', {
     completed_at: { type: DataTypes.DATE }
 }, { tableName: 'training_session_progress', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
+// MB-14: Wellness Quotes
+const WellnessQuote = sequelize.define('wellness_quote', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    quote_text: { type: DataTypes.TEXT, allowNull: false },
+    author: { type: DataTypes.STRING(255), defaultValue: 'Unknown' },
+    day_of_week: { type: DataTypes.INTEGER }
+}, { tableName: 'wellness_quotes', timestamps: true, createdAt: 'created_at', updatedAt: false });
+
+// MB-15: Wellness Tasks
+const WellnessTask = sequelize.define('wellness_task', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    title: { type: DataTypes.STRING(255), allowNull: false },
+    description: DataTypes.TEXT,
+    category: { type: DataTypes.STRING(50), defaultValue: 'Health' },
+    is_active: { type: DataTypes.BOOLEAN, defaultValue: true }
+}, { tableName: 'wellness_tasks', timestamps: true, createdAt: 'created_at', updatedAt: false });
+
+// MB-16: Announcements
+const Announcement = sequelize.define('announcement', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    title: { type: DataTypes.STRING(255), allowNull: false },
+    short_description: DataTypes.TEXT,
+    full_content: DataTypes.TEXT,
+    created_by: DataTypes.STRING(255),
+    is_active: { type: DataTypes.BOOLEAN, defaultValue: true }
+}, { tableName: 'announcements', timestamps: true, createdAt: 'created_at', updatedAt: false });
+
+// MB-18/MB-19: Article extended with content_type support
+const EducationContent = sequelize.define('education_content', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    content_type: { type: DataTypes.STRING(20), allowNull: false }, // article | pdf | video | audio | infographic
+    title: { type: DataTypes.STRING(255), allowNull: false },
+    author_name: DataTypes.STRING(255),
+    category: DataTypes.STRING(100),
+    description: DataTypes.TEXT,
+    thumbnail_url: DataTypes.STRING(500),
+    media_url: DataTypes.STRING(500),        // video_url / audio_url / pdf_url / infographic_url
+    duration_seconds: DataTypes.INTEGER,     // video / audio
+    page_count: DataTypes.INTEGER,           // pdf
+    view_count: { type: DataTypes.INTEGER, defaultValue: 0 },
+    topic: DataTypes.STRING(100),            // infographic topic
+    health_topic: DataTypes.STRING(100),     // infographic health topic
+    is_published: { type: DataTypes.BOOLEAN, defaultValue: false },
+    created_by: DataTypes.STRING(255)
+}, { tableName: 'education_contents', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
+
 // Admin user table (email + bcrypt password — separate from patient users)
 const AdminUser = defineAdminUser(sequelize);
 
@@ -286,5 +332,6 @@ module.exports = {
     Article, ManagerAssignedUser, UserMedicalCondition, UserMedication,
     UserAllergy, UserLifestyle, UserDevice, UserSubscription, SubscriptionAuditLog,
     DashboardConfig, UserAuditLog, ExportHistory,
-    TrainingCategory, TrainingModule, TrainingModuleCategory, TrainingSession, TrainingSessionProgress
+    TrainingCategory, TrainingModule, TrainingModuleCategory, TrainingSession, TrainingSessionProgress,
+    WellnessQuote, WellnessTask, Announcement, EducationContent
 };

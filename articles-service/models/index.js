@@ -35,4 +35,23 @@ const Bookmark = sequelize.define('bookmarked_article', {
     article_id: { type: DataTypes.STRING(20), primaryKey: true },
 }, { tableName: 'bookmarked_articles', timestamps: true, createdAt: 'created_at', updatedAt: false });
 
-module.exports = { sequelize, Article, Bookmark };
+// MB-18/MB-19: Multi-media education content (video, audio, infographic, pdf, article)
+const EducationContent = sequelize.define('education_content', {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    content_type: { type: DataTypes.STRING(20), allowNull: false },
+    title: { type: DataTypes.STRING(255), allowNull: false },
+    author_name: DataTypes.STRING(255),
+    category: DataTypes.STRING(100),
+    description: DataTypes.TEXT,
+    thumbnail_url: DataTypes.STRING(500),
+    media_url: DataTypes.STRING(500),
+    duration_seconds: DataTypes.INTEGER,
+    page_count: DataTypes.INTEGER,
+    view_count: { type: DataTypes.INTEGER, defaultValue: 0 },
+    topic: DataTypes.STRING(100),
+    health_topic: DataTypes.STRING(100),
+    is_published: { type: DataTypes.BOOLEAN, defaultValue: false },
+    created_by: DataTypes.STRING(255)
+}, { tableName: 'education_contents', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
+
+module.exports = { sequelize, Article, Bookmark, EducationContent };

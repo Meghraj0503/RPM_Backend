@@ -4,6 +4,7 @@ const dotenv = require('dotenv');
 const { sequelize } = require('./models');
 const onboardingRoutes = require('./routes/onboardingRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
+const extendedProfileRoutes = require('./routes/extendedProfileRoutes');
 
 dotenv.config();
 const app = express();
@@ -14,6 +15,7 @@ app.use(express.json());
 
 app.use('/api/onboarding', onboardingRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/profile', extendedProfileRoutes);
 
 sequelize.authenticate().then(() => {
     console.log('Profile Database connected via Sequelize.');
