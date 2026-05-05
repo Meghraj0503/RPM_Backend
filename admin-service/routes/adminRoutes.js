@@ -138,6 +138,7 @@ router.get('/training/modules/:id', trainingController.getModuleById);
 router.put('/training/modules/:id', trainingController.updateModule);
 router.put('/training/modules/:id/publish', trainingController.togglePublish);
 router.delete('/training/modules/:id', trainingController.deleteModule);
+router.get('/training/users/:userId/progress', trainingController.getUserTrainingProgress);
 
 module.exports = router;
 

@@ -19,11 +19,18 @@ function getNumericValue(question, answer) {
     // Yes/No
     if (text === 'yes') return 1;
     if (text === 'no') return 0;
-    // Look up numeric value from options_json
     const options = question.options_json;
-    if (Array.isArray(options)) {
-        const opt = options.find(o => String(o.label || o.value || '').toLowerCase() === text);
-        if (opt && opt.value !== undefined) return Number(opt.value);
+    if (Array.isArray(options) && options.length > 0) {
+        if (typeof options[0] === 'object' && options[0] !== null) {
+            // Object format: [{ label: "Good", value: 2 }]
+            const opt = options.find(o => String(o.label || o.text || o.value || '').toLowerCase() === text);
+            if (opt && opt.value !== undefined) return Number(opt.value);
+        } else {
+            // Plain string format: ["Excellent", "Good", "Fair", "Poor"]
+            // Use index as score value (0 = first option, 1 = second, ...)
+            const idx = options.findIndex(o => String(o).toLowerCase() === text);
+            if (idx !== -1) return idx;
+        }
     }
     // Try to parse as number from text
     const n = parseFloat(text);
@@ -119,14 +126,20 @@ function scoreGeneric(questions, answerMap) {
         const opts = q.options_json;
         let maxOpt = 1;
         if (Array.isArray(opts) && opts.length > 0) {
-            const nums = opts.map(o => Number(o.value || 0)).filter(v => !isNaN(v));
-            maxOpt = nums.length > 0 ? Math.max(...nums) : 1;
-        } else if (q.question_type === 'rating') {
-            maxOpt = 10;
+            if (typeof opts[0] === 'object' && opts[0] !== null) {
+                // Object format — use max value field
+                const nums = opts.map(o => Number(o.value || 0)).filter(v => !isNaN(v));
+                maxOpt = nums.length > 0 ? Math.max(...nums) : opts.length - 1;
+            } else {
+                // Plain string array — max index = length - 1
+                maxOpt = opts.length - 1;
+            }
+        } else if (q.question_type === 'Rating' || q.question_type === 'rating') {
+            maxOpt = 5; // default star/rating scale max
         } else if (q.question_type === 'numeric') {
             maxOpt = 100;
         }
-        maxPossible += maxOpt;
+        maxPossible += maxOpt || 1;
 
         const val = getNumericValue(q, answerMap[q.id]);
         if (val !== null) total += Math.max(0, val);

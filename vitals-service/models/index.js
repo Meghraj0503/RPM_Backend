@@ -24,6 +24,7 @@ const UserVital = sequelize.define('user_vital', {
     vital_unit: { type: DataTypes.STRING(20) },
     is_manual: { type: DataTypes.BOOLEAN, defaultValue: false },
     source: { type: DataTypes.STRING(100) },
+    duration_minutes: { type: DataTypes.INTEGER },   // walk/activity duration — only used for steps
     recorded_at: { type: DataTypes.DATE, allowNull: false }
 }, { tableName: 'user_vitals', timestamps: true, createdAt: 'created_at', updatedAt: false });
 

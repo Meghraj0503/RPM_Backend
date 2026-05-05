@@ -34,7 +34,8 @@ const TrainingModule = sequelize.define('training_module', {
     difficulty_level: { type: DataTypes.STRING(50), defaultValue: 'Intermediate' },
     is_published: { type: DataTypes.BOOLEAN, defaultValue: false },
     is_deleted: { type: DataTypes.BOOLEAN, defaultValue: false },
-    created_by: { type: DataTypes.STRING(255) }
+    created_by: { type: DataTypes.STRING(255) },
+    expiry_date: { type: DataTypes.DATEONLY }
 }, { tableName: 'training_modules', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
 const TrainingModuleCategory = sequelize.define('training_module_category', {

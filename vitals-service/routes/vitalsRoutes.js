@@ -13,6 +13,9 @@ router.post('/sync', subscriptionMiddleware, vitalsController.syncVitals);
 router.post('/device', subscriptionMiddleware, deviceController.pairDevice);
 router.post('/sync-status', subscriptionMiddleware, vitalsController.updateSyncStatus);
 
+// Manual entry — no subscription paywall (fallback when device not worn)
+router.post('/manual', vitalsController.logManualVitals);
+
 // Read-only routes — always available regardless of subscription
 router.get('/sync-status', vitalsController.getSyncStatus);
 router.get('/dashboard', vitalsController.getDashboard);

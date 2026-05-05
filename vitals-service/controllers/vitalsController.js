@@ -127,6 +127,105 @@ exports.updateSyncStatus = async (req, res) => {
     }
 };
 
+// ── Manual Vital Entry (user enters data when device not worn) ────────────────
+const ALLOWED_TYPES = new Set([
+    'heart_rate', 'spo2', 'hrv', 'steps',
+    'sleep', 'sleep_deep', 'sleep_light', 'sleep_rem',
+    'calories', 'active_calories', 'resting_calories',
+    'activity_minutes', 'stress_score'
+]);
+
+const DEFAULT_UNITS = {
+    heart_rate: 'bpm',
+    spo2: '%',
+    hrv: 'ms',
+    steps: 'steps',
+    sleep: 'hours',
+    sleep_deep: 'hours',
+    sleep_light: 'hours',
+    sleep_rem: 'hours',
+    calories: 'kcal',
+    active_calories: 'kcal',
+    resting_calories: 'kcal',
+    activity_minutes: 'min',
+    stress_score: 'score'
+};
+
+exports.logManualVitals = async (req, res) => {
+    const userId = req.user.id;
+    const { entries } = req.body;
+
+    if (!Array.isArray(entries) || entries.length === 0)
+        return res.status(400).json({ error: '`entries` must be a non-empty array' });
+
+    // Validate each entry
+    const errors = [];
+    entries.forEach((e, i) => {
+        if (!e.vital_type)
+            errors.push(`entries[${i}]: vital_type is required`);
+        else if (!ALLOWED_TYPES.has(e.vital_type))
+            errors.push(`entries[${i}]: unknown vital_type "${e.vital_type}"`);
+        if (e.vital_value === undefined || e.vital_value === null || isNaN(Number(e.vital_value)))
+            errors.push(`entries[${i}]: vital_value must be a number`);
+        else if (Number(e.vital_value) < 0)
+            errors.push(`entries[${i}]: vital_value cannot be negative`);
+        if (e.recorded_at && isNaN(Date.parse(e.recorded_at)))
+            errors.push(`entries[${i}]: recorded_at is not a valid date`);
+        if (e.duration_minutes !== undefined && (isNaN(Number(e.duration_minutes)) || Number(e.duration_minutes) < 0))
+            errors.push(`entries[${i}]: duration_minutes must be a non-negative number`);
+    });
+    if (errors.length) return res.status(400).json({ errors });
+
+    const transaction = await sequelize.transaction();
+    try {
+        const vitalsToInsert = [];
+        const alertsToFire = [];
+
+        for (const e of entries) {
+            const value = Number(e.vital_value);
+            const recordedAt = e.recorded_at ? new Date(e.recorded_at) : new Date();
+
+            vitalsToInsert.push({
+                user_id: userId,
+                vital_type: e.vital_type,
+                vital_value: value,
+                vital_unit: e.vital_unit || DEFAULT_UNITS[e.vital_type] || null,
+                is_manual: true,
+                source: 'manual_entry',
+                duration_minutes: e.vital_type === 'steps' && e.duration_minutes != null
+                    ? Number(e.duration_minutes)
+                    : null,
+                recorded_at: recordedAt
+            });
+
+            // Same alert thresholds as device sync
+            if (e.vital_type === 'spo2' && value < 90)
+                alertsToFire.push({ user_id: userId, vital_type: 'spo2', message: `Low SpO2: ${value}%` });
+            if (e.vital_type === 'heart_rate' && value > 120)
+                alertsToFire.push({ user_id: userId, vital_type: 'heart_rate', message: `High Resting HR: ${value} bpm` });
+        }
+
+        await UserVital.bulkCreate(vitalsToInsert, { transaction });
+        if (alertsToFire.length)
+            await UserAlert.bulkCreate(alertsToFire, { transaction });
+
+        await transaction.commit();
+
+        for (const alert of alertsToFire)
+            fireAlertNotification(alert.user_id, alert.message);
+
+        res.status(201).json({
+            message: 'Vitals saved successfully',
+            saved: vitalsToInsert.length,
+            alerts_raised: alertsToFire.length
+        });
+    } catch (err) {
+        await transaction.rollback();
+        console.error('[manual-vitals]', err);
+        res.status(500).json({ error: 'Failed to save vitals' });
+    }
+};
+
 exports.getSyncStatus = async (req, res) => {
     const userId = req.user.id;
     try {
