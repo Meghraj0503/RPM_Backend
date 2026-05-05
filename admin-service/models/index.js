@@ -89,6 +89,14 @@ const UserQuestionnaireScore = sequelize.define('user_questionnaire_score', {
     domain_scores_json: { type: DataTypes.JSONB, allowNull: false }
 }, { tableName: 'user_questionnaire_scores', timestamps: false });
 
+const UserResponse = sequelize.define('user_response', {
+    id: { type: DataTypes.BIGINT, primaryKey: true, autoIncrement: true },
+    user_questionnaire_id: { type: DataTypes.STRING(20) },
+    question_id: { type: DataTypes.INTEGER },
+    response_value_text: { type: DataTypes.TEXT },
+    response_value_numeric: { type: DataTypes.DECIMAL(10, 2) }
+}, { tableName: 'user_responses', timestamps: false });
+
 const Article = sequelize.define('article', {
     id: { type: DataTypes.STRING(20), primaryKey: true, defaultValue: Sequelize.literal("'ART-' || nextval('article_seq')") },
     title: { type: DataTypes.STRING },
@@ -314,6 +322,11 @@ UserQuestionnaire.belongsTo(QuestionnaireTemplate, { foreignKey: 'questionnaire_
 UserQuestionnaire.hasOne(UserQuestionnaireScore, { foreignKey: 'user_questionnaire_id', as: 'scores' });
 UserQuestionnaireScore.belongsTo(UserQuestionnaire, { foreignKey: 'user_questionnaire_id' });
 
+UserQuestionnaire.hasMany(UserResponse, { foreignKey: 'user_questionnaire_id', as: 'responses' });
+UserResponse.belongsTo(UserQuestionnaire, { foreignKey: 'user_questionnaire_id' });
+Question.hasMany(UserResponse, { foreignKey: 'question_id', as: 'responses' });
+UserResponse.belongsTo(Question, { foreignKey: 'question_id' });
+
 // Training relationships
 TrainingModule.belongsToMany(TrainingCategory, { through: TrainingModuleCategory, foreignKey: 'module_id', as: 'categories' });
 TrainingCategory.belongsToMany(TrainingModule, { through: TrainingModuleCategory, foreignKey: 'category_id', as: 'modules' });
@@ -329,7 +342,7 @@ TrainingSessionProgress.belongsTo(TrainingSession, { foreignKey: 'session_id' })
 
 module.exports = {
     sequelize, AdminUser, User, UserProfile, UserVital, UserAlert,
-    QuestionnaireTemplate, Question, UserQuestionnaire, UserQuestionnaireScore,
+    QuestionnaireTemplate, Question, UserQuestionnaire, UserQuestionnaireScore, UserResponse,
     Article, ManagerAssignedUser, UserMedicalCondition, UserMedication,
     UserAllergy, UserLifestyle, UserDevice, UserSubscription, SubscriptionAuditLog,
     DashboardConfig, UserAuditLog, ExportHistory,

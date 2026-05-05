@@ -1,4 +1,4 @@
-const { User, UserProfile, UserVital, UserAlert, UserQuestionnaire, Article, UserMedicalCondition, UserMedication, UserAllergy, UserLifestyle, UserSubscription, SubscriptionAuditLog, DashboardConfig, UserAuditLog, UserDevice, ExportHistory, sequelize, QuestionnaireTemplate, Question } = require('../models');
+const { User, UserProfile, UserVital, UserAlert, UserQuestionnaire, UserQuestionnaireScore, UserResponse, Article, UserMedicalCondition, UserMedication, UserAllergy, UserLifestyle, UserSubscription, SubscriptionAuditLog, DashboardConfig, UserAuditLog, UserDevice, ExportHistory, sequelize, QuestionnaireTemplate, Question } = require('../models');
 const { Op } = require('sequelize');
 const jwt = require('jsonwebtoken');
 
@@ -536,7 +536,12 @@ exports.getUserDetail = async (req, res) => {
             order: [['recorded_at', 'DESC']]
         });
         const questionnaires = await UserQuestionnaire.findAll({
-            where: { user_id: userId }, order: [['completed_at', 'DESC']]
+            where: { user_id: userId },
+            include: [
+                { model: QuestionnaireTemplate, attributes: ['id', 'title', 'category', 'type'] },
+                { model: UserQuestionnaireScore, as: 'scores', attributes: ['overall_score', 'domain_scores_json'] }
+            ],
+            order: [['completed_at', 'DESC']]
         });
         const alerts = await UserAlert.findAll({
             where: { user_id: userId }, order: [['created_at', 'DESC']], limit: 10
@@ -1257,6 +1262,157 @@ exports.assignQuestionnaire = async (req, res) => {
     } catch (e) {
         console.error(e);
         res.status(500).json({ error: 'Failed to assign questionnaires' });
+    }
+};
+
+// ── Questionnaire Submissions ─────────────────────────────────────────────────
+
+// List all submissions for a questionnaire template (summary — no per-question detail)
+exports.getQuestionnaireSubmissions = async (req, res) => {
+    try {
+        const { id } = req.params; // questionnaire_id
+
+        const tmpl = await QuestionnaireTemplate.findByPk(id, { attributes: ['id', 'title', 'category', 'type'] });
+        if (!tmpl) return res.status(404).json({ error: 'Questionnaire not found' });
+
+        const submissions = await UserQuestionnaire.findAll({
+            where: { questionnaire_id: id, status: 'Completed' },
+            include: [
+                { model: User, attributes: ['id', 'name', 'phone_number'] },
+                { model: UserQuestionnaireScore, as: 'scores', attributes: ['overall_score', 'domain_scores_json'] }
+            ],
+            order: [['completed_at', 'DESC']]
+        });
+
+        res.json({
+            questionnaire: tmpl,
+            total: submissions.length,
+            submissions: submissions.map(s => ({
+                submission_id:  s.id,
+                user:           s.user ? { id: s.user.id, name: s.user.name, phone: s.user.phone_number } : null,
+                submitted_at:   s.completed_at,
+                overall_score:  s.overall_score,
+                domain_scores:  s.scores?.domain_scores_json || null
+            }))
+        });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to fetch submissions' });
+    }
+};
+
+// Full submission detail — every question with the user's exact answer
+exports.getSubmissionDetail = async (req, res) => {
+    try {
+        const { submissionId } = req.params;
+
+        const submission = await UserQuestionnaire.findByPk(submissionId, {
+            include: [
+                { model: User, attributes: ['id', 'name', 'phone_number'] },
+                {
+                    model: QuestionnaireTemplate,
+                    attributes: ['id', 'title', 'category', 'type'],
+                    include: [{
+                        model: Question, as: 'questions',
+                        attributes: ['id', 'question_text', 'question_type', 'options_json', 'sort_order']
+                    }]
+                },
+                { model: UserQuestionnaireScore, as: 'scores' }
+            ]
+        });
+
+        if (!submission) return res.status(404).json({ error: 'Submission not found' });
+
+        // Fetch all response rows for this submission
+        const responseRows = await UserResponse.findAll({
+            where: { user_questionnaire_id: submissionId }
+        });
+
+        // Index responses by question_id (multiple rows per question possible for checkboxes)
+        const responsesByQuestion = {};
+        for (const r of responseRows) {
+            const qid = r.question_id;
+            if (!responsesByQuestion[qid]) responsesByQuestion[qid] = [];
+            responsesByQuestion[qid].push(r);
+        }
+
+        const questions = (submission.questionnaire_template?.questions || [])
+            .sort((a, b) => a.sort_order - b.sort_order);
+
+        const answers = questions.map(q => {
+            const rows = responsesByQuestion[q.id] || [];
+            const options = Array.isArray(q.options_json) ? q.options_json : null;
+
+            let display = null;
+
+            if (rows.length === 0) {
+                display = null;
+            } else if (q.question_type === 'Rating') {
+                // Star rating — stored as numeric
+                const num = rows[0].response_value_numeric != null
+                    ? Number(rows[0].response_value_numeric)
+                    : parseFloat(rows[0].response_value_text || '0');
+                display = num;
+
+            } else if (q.question_type === 'Checkboxes') {
+                // May be stored as JSON array string, comma-separated, or multiple rows
+                if (rows.length > 1) {
+                    display = rows.map(r => r.response_value_text).filter(Boolean);
+                } else {
+                    const raw = rows[0].response_value_text || '';
+                    try {
+                        const parsed = JSON.parse(raw);
+                        display = Array.isArray(parsed) ? parsed : [raw];
+                    } catch {
+                        display = raw.split(',').map(s => s.trim()).filter(Boolean);
+                    }
+                }
+
+            } else if (q.question_type === 'Short Answer' || q.question_type === 'Paragraph') {
+                display = rows[0].response_value_text || '';
+
+            } else {
+                // Multiple choice, Dropdown, Yes/No — single text answer
+                display = rows[0].response_value_text
+                    || (rows[0].response_value_numeric != null ? String(rows[0].response_value_numeric) : null);
+            }
+
+            return {
+                question_id:    q.id,
+                sort_order:     q.sort_order,
+                question_text:  q.question_text,
+                question_type:  q.question_type,
+                options:        options,
+                answer: {
+                    display,
+                    raw_text:    rows.length ? (rows[0].response_value_text || null) : null,
+                    raw_numeric: rows.length ? (rows[0].response_value_numeric != null ? Number(rows[0].response_value_numeric) : null) : null
+                }
+            };
+        });
+
+        res.json({
+            submission_id:  submission.id,
+            questionnaire: {
+                id:       submission.questionnaire_template?.id,
+                title:    submission.questionnaire_template?.title,
+                category: submission.questionnaire_template?.category,
+                type:     submission.questionnaire_template?.type
+            },
+            user: submission.user
+                ? { id: submission.user.id, name: submission.user.name, phone: submission.user.phone_number }
+                : null,
+            status:        submission.status,
+            submitted_at:  submission.completed_at,
+            overall_score: submission.overall_score,
+            domain_scores: submission.scores?.domain_scores_json || null,
+            total_questions: questions.length,
+            answered:        answers.filter(a => a.answer.display !== null).length,
+            answers
+        });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to fetch submission detail' });
     }
 };
 

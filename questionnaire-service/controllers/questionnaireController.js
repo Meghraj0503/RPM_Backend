@@ -274,35 +274,142 @@ exports.submitQuestionnaire = async (req, res) => {
     }
 };
 
-// MB-04: User views their questionnaire results
-exports.getQuestionnaireResult = async (req, res) => {
-    const { id } = req.params;
+// Lightweight list of completed submissions for the "Completed" tab
+exports.getCompletedSubmissions = async (req, res) => {
+    const userId = req.user.id;
+    try {
+        const submissions = await UserQuestionnaire.findAll({
+            where: { user_id: userId, status: 'Completed' },
+            include: [
+                { model: QuestionnaireTemplate, attributes: ['id', 'title', 'category', 'type'] },
+                { model: UserQuestionnaireScore, as: 'scores', attributes: ['overall_score', 'domain_scores_json'] }
+            ],
+            order: [['completed_at', 'DESC']]
+        });
+
+        const result = submissions.map(s => ({
+            submission_id:  s.id,
+            questionnaire_id: s.questionnaire_id,
+            title:          s.questionnaire_template?.title || 'Questionnaire',
+            category:       s.questionnaire_template?.category || null,
+            type:           s.questionnaire_template?.type || null,
+            status:         s.status,
+            submitted_at:   s.completed_at,
+            overall_score:  s.overall_score != null ? Number(s.overall_score) : null,
+            domain_scores:  s.scores?.domain_scores_json || null
+        }));
+
+        res.json({ total: result.length, submissions: result });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Server error fetching completed submissions' });
+    }
+};
+
+// Full submission detail — questions with the user's exact answers per type
+exports.getSubmissionDetail = async (req, res) => {
+    const { id } = req.params;   // UserQuestionnaire id
     const userId = req.user.id;
     try {
         const uq = await UserQuestionnaire.findOne({
             where: { id, user_id: userId, status: 'Completed' },
             include: [
-                { model: QuestionnaireTemplate, attributes: ['title', 'category', 'type'] },
+                {
+                    model: QuestionnaireTemplate,
+                    attributes: ['id', 'title', 'category', 'type'],
+                    include: [{
+                        model: Question, as: 'questions',
+                        attributes: ['id', 'question_text', 'question_type', 'options_json', 'sort_order']
+                    }]
+                },
                 { model: UserQuestionnaireScore, as: 'scores' }
             ]
         });
-        if (!uq) return res.status(404).json({ error: 'Result not found' });
+        if (!uq) return res.status(404).json({ error: 'Submission not found' });
 
-        // Also return the responses
-        const responses = await UserResponse.findAll({ where: { user_questionnaire_id: id } });
+        const responseRows = await UserResponse.findAll({
+            where: { user_questionnaire_id: id }
+        });
+
+        // Index responses by question_id (multiple rows per question possible for checkboxes)
+        const responsesByQuestion = {};
+        for (const r of responseRows) {
+            if (!responsesByQuestion[r.question_id]) responsesByQuestion[r.question_id] = [];
+            responsesByQuestion[r.question_id].push(r);
+        }
+
+        const questions = (uq.questionnaire_template?.questions || [])
+            .sort((a, b) => a.sort_order - b.sort_order);
+
+        const answers = questions.map((q, idx) => {
+            const rows = responsesByQuestion[q.id] || [];
+            const options = Array.isArray(q.options_json) ? q.options_json : null;
+            let display = null;
+
+            if (rows.length > 0) {
+                if (q.question_type === 'Rating') {
+                    const num = rows[0].response_value_numeric != null
+                        ? Number(rows[0].response_value_numeric)
+                        : parseFloat(rows[0].response_value_text || '0');
+                    display = num;
+
+                } else if (q.question_type === 'Checkboxes') {
+                    if (rows.length > 1) {
+                        display = rows.map(r => r.response_value_text).filter(Boolean);
+                    } else {
+                        const raw = rows[0].response_value_text || '';
+                        try {
+                            const parsed = JSON.parse(raw);
+                            display = Array.isArray(parsed) ? parsed : [raw];
+                        } catch {
+                            display = raw.split(',').map(s => s.trim()).filter(Boolean);
+                        }
+                    }
+
+                } else if (q.question_type === 'Short Answer' || q.question_type === 'Paragraph') {
+                    display = rows[0].response_value_text || '';
+
+                } else {
+                    // Multiple choice, Dropdown, Yes/No
+                    display = rows[0].response_value_text
+                        || (rows[0].response_value_numeric != null ? String(rows[0].response_value_numeric) : null);
+                }
+            }
+
+            return {
+                question_id:   q.id,
+                sort_order:    idx + 1,
+                question_text: q.question_text,
+                question_type: q.question_type,
+                options:       options,
+                answer: {
+                    display,
+                    raw_text:    rows.length ? (rows[0].response_value_text || null) : null,
+                    raw_numeric: rows.length && rows[0].response_value_numeric != null
+                        ? Number(rows[0].response_value_numeric) : null
+                }
+            };
+        });
 
         res.json({
-            questionnaire_id: id,
-            title: uq.questionnaire_template?.title,
-            category: uq.questionnaire_template?.category,
-            completed_at: uq.completed_at,
-            overall_score: uq.overall_score,
-            domain_scores: uq.scores?.domain_scores_json || {},
-            responses
+            submission_id:   uq.id,
+            questionnaire: {
+                id:       uq.questionnaire_template?.id,
+                title:    uq.questionnaire_template?.title,
+                category: uq.questionnaire_template?.category,
+                type:     uq.questionnaire_template?.type
+            },
+            status:          uq.status,
+            submitted_at:    uq.completed_at,
+            overall_score:   uq.overall_score != null ? Number(uq.overall_score) : null,
+            domain_scores:   uq.scores?.domain_scores_json || null,
+            total_questions: questions.length,
+            answered:        answers.filter(a => a.answer.display !== null).length,
+            answers
         });
     } catch (error) {
         console.error(error);
-        res.status(500).json({ error: 'Server error fetching result' });
+        res.status(500).json({ error: 'Server error fetching submission detail' });
     }
 };
 

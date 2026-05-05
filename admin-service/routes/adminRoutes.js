@@ -93,6 +93,8 @@ router.delete('/questionnaires/:id', adminController.deleteQuestionnaire);
 
 router.get('/questionnaires/:id/target-users', adminController.getQuestionnaireTargetUsers);
 router.post('/questionnaires/:id/assign', adminController.assignQuestionnaire);
+router.get('/questionnaires/:id/submissions', adminController.getQuestionnaireSubmissions);
+router.get('/questionnaires/submissions/:submissionId', adminController.getSubmissionDetail);
 
 // ==================== CONTENT MANAGEMENT (Quotes, Tasks, Announcements, Education) ====================
 const contentController = require('../controllers/contentController');
