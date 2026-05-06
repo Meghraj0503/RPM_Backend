@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
-const ACCESS_TTL = '1h';       // Short-lived access token
+const ACCESS_TTL = '24h';       // Short-lived access token
 const REFRESH_TTL_DAYS = 30;  // Long-lived refresh token
 
 const authMiddleware = require('../authMiddleware');
