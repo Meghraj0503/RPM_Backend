@@ -35,8 +35,8 @@ async function findMember(userId, userPhone, programId) {
 // GET /api/programs/user/
 exports.getMyPrograms = async (req, res) => {
     try {
-        const phoneVariants = req.user.phone
-            ? [...new Set([req.user.phone, normalizePhone(req.user.phone)])].filter(Boolean)
+        const phoneVariants = req.user.phoneNumberNumber
+            ? [...new Set([req.user.phoneNumberNumber, normalizePhone(req.user.phoneNumberNumber)])].filter(Boolean)
             : [];
         const memberships = await ProgramMember.findAll({
             where: { [Op.or]: [
@@ -71,7 +71,7 @@ exports.getProgramDetail = async (req, res) => {
         });
         if (!program) return res.status(404).json({ error: 'Program not found' });
 
-        const member = await findMember(req.user.id, req.user.phone, program.id);
+        const member = await findMember(req.user.id, req.user.phoneNumber, program.id);
         if (!member) return res.status(403).json({ error: 'You are not enrolled in this program' });
 
         // Attach opt-out status per sub-program
@@ -98,7 +98,7 @@ exports.optOut = async (req, res) => {
         if (!sub.opt_out_enabled)
             return res.status(403).json({ error: 'Opt-out is not allowed for this sub-program' });
 
-        const member = await findMember(req.user.id, req.user.phone, sub.program_id);
+        const member = await findMember(req.user.id, req.user.phoneNumber, sub.program_id);
         if (!member) return res.status(403).json({ error: 'Not enrolled in this program' });
 
         const alreadyOpted = await SubProgramOptOut.findOne({
@@ -123,7 +123,7 @@ exports.getSubProgramData = async (req, res) => {
         });
         if (!sub) return res.status(404).json({ error: 'Sub-program not found' });
 
-        const member = await findMember(req.user.id, req.user.phone, sub.program_id);
+        const member = await findMember(req.user.id, req.user.phoneNumber, sub.program_id);
         if (!member) return res.status(403).json({ error: 'Not enrolled in this program' });
 
         const optOut = await SubProgramOptOut.findOne({
@@ -157,7 +157,7 @@ exports.submitPostData = async (req, res) => {
         const sub = await SubProgram.findByPk(req.params.id);
         if (!sub) return res.status(404).json({ error: 'Sub-program not found' });
 
-        const member = await findMember(req.user.id, req.user.phone, sub.program_id);
+        const member = await findMember(req.user.id, req.user.phoneNumber, sub.program_id);
         if (!member) return res.status(403).json({ error: 'Not enrolled in this program' });
 
         const optOut = await SubProgramOptOut.findOne({ where: { sub_program_id: sub.id, member_id: member.id } });
@@ -217,8 +217,8 @@ exports.updatePostRecord = async (req, res) => {
             return res.status(403).json({ error: 'This record has been verified and is locked' });
 
         // Verify this record belongs to this user
-        const patchPhoneVariants = req.user.phone
-            ? [...new Set([req.user.phone, normalizePhone(req.user.phone)])].filter(Boolean)
+        const patchPhoneVariants = req.user.phoneNumber
+            ? [...new Set([req.user.phoneNumber, normalizePhone(req.user.phoneNumber)])].filter(Boolean)
             : [];
         const member = await ProgramMember.findOne({
             where: { id: record.member_id, [Op.or]: [

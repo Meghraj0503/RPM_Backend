@@ -86,22 +86,91 @@ exports.removeMember = async (req, res) => {
     }
 };
 
-// Link program_members to users table by matching phone numbers
+// Link program_members to users table by matching last-10-digits of phone_number
 exports.linkMembers = async (req, res) => {
     try {
-        const { sequelize: seq } = require('../models');
         const members = await ProgramMember.findAll({
             where: { program_id: req.params.id, user_id: null, phone: { [Op.ne]: null } },
         });
         let linked = 0;
         for (const m of members) {
-            const [user] = await seq.query(
-                `SELECT id FROM users WHERE phone = :phone LIMIT 1`,
-                { replacements: { phone: m.phone }, type: seq.QueryTypes.SELECT }
+            const last10 = (m.phone || '').replace(/\D/g, '').slice(-10);
+            if (!last10) continue;
+            const [user] = await sequelize.query(
+                `SELECT id FROM users WHERE RIGHT(phone_number, 10) = :last10 LIMIT 1`,
+                { replacements: { last10 }, type: sequelize.QueryTypes.SELECT }
             );
             if (user) { await m.update({ user_id: user.id }); linked++; }
         }
         res.json({ message: `Linked ${linked} of ${members.length} members to user accounts` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// GET /api/programs/admin/users/:userId/programs
+// Returns all program memberships for a given app user (by user_id or phone fallback)
+exports.getUserPrograms = async (req, res) => {
+    try {
+        const userId = req.params.userId;
+        const [userRow] = await sequelize.query(
+            `SELECT phone_number FROM users WHERE id = :userId LIMIT 1`,
+            { replacements: { userId }, type: sequelize.QueryTypes.SELECT }
+        );
+        const last10 = userRow?.phone_number
+            ? userRow.phone_number.replace(/\D/g, '').slice(-10) : null;
+
+        const whereClause = last10
+            ? { [Op.or]: [
+                { user_id: userId },
+                Sequelize.where(Sequelize.fn('RIGHT', Sequelize.col('phone'), 10), last10),
+              ] }
+            : { user_id: userId };
+
+        const members = await ProgramMember.findAll({
+            where: whereClause,
+            include: [{ model: Program, attributes: ['id', 'name', 'description', 'start_date', 'end_date'] }],
+            order: [['created_at', 'DESC']],
+        });
+
+        const result = await Promise.all(members.map(async m => {
+            const subPrograms = await SubProgram.findAll({
+                where: { program_id: m.program_id }, attributes: ['id', 'name'],
+            });
+            const dataSummary = await Promise.all(subPrograms.map(async sub => {
+                const [pre, post, optOut] = await Promise.all([
+                    ProgramDataRecord.findOne({ where: { sub_program_id: sub.id, member_id: m.id, phase: 'pre' }, attributes: ['id', 'verification_status', 'created_at'] }),
+                    ProgramDataRecord.findOne({ where: { sub_program_id: sub.id, member_id: m.id, phase: 'post' }, attributes: ['id', 'verification_status', 'updated_at'] }),
+                    SubProgramOptOut.findOne({ where: { sub_program_id: sub.id, member_id: m.id } }),
+                ]);
+                return { sub_program: sub, pre, post, opted_out: !!optOut };
+            }));
+            return { member: m.toJSON(), program: m.program, data_summary: dataSummary };
+        }));
+
+        res.json({ programs: result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+// GET /api/programs/admin/users/:userId/program-audit
+// Returns program audit logs for all memberships of a user
+exports.getUserProgramAudit = async (req, res) => {
+    try {
+        const userId = req.params.userId;
+        const members = await ProgramMember.findAll({
+            where: { user_id: userId }, attributes: ['id'],
+        });
+        if (members.length === 0) return res.json({ audit: [] });
+
+        const memberIds = members.map(m => m.id);
+        const logs = await ProgramAuditLog.findAll({
+            where: { member_id: { [Op.in]: memberIds } },
+            order: [['changed_at', 'DESC']],
+            limit: 200,
+        });
+        res.json({ audit: logs });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

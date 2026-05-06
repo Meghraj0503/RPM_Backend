@@ -48,6 +48,10 @@ router.put   ('/records/:id',                   dCtrl.updateRecord);
 router.put   ('/records/:id/verify',            dCtrl.verifyRecord);
 router.delete('/records/:id',                   dCtrl.deleteRecord);
 
+/* ──────────────── User-level lookups (for admin user detail page) ── */
+router.get   ('/users/:userId/programs',        dCtrl.getUserPrograms);
+router.get   ('/users/:userId/program-audit',   dCtrl.getUserProgramAudit);
+
 /* ──────────────── Audit ─────────────────── */
 router.get   ('/audit',                         dCtrl.getAuditLogs);
 
