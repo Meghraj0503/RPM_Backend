@@ -1,3 +1,4 @@
+const { Op } = require('sequelize');
 const {
     Program, SubProgram, DatasetField,
     ProgramMember, SubProgramOptOut,
@@ -6,15 +7,23 @@ const {
 
 /* ─────────────────────── helper ─────────────────────────── */
 
+// Strips country code prefixes so "+919566776106" and "9566776106" both → "9566776106"
+function normalizePhone(phone) {
+    const digits = (phone || '').replace(/\D/g, '');
+    return digits.length >= 10 ? digits.slice(-10) : digits;
+}
+
 // Find the program_member row for the currently logged-in user.
-// Tries user_id first; falls back to phone match for freshly-imported members.
+// Tries user_id first; falls back to phone match (handles +91 prefix mismatch).
 async function findMember(userId, userPhone, programId) {
     let member = await ProgramMember.findOne({
         where: { program_id: programId, user_id: userId, is_active: true },
     });
     if (!member && userPhone) {
+        const normalized = normalizePhone(userPhone);
+        const phoneVariants = [...new Set([userPhone, normalized])].filter(Boolean);
         member = await ProgramMember.findOne({
-            where: { program_id: programId, phone: userPhone, is_active: true },
+            where: { program_id: programId, phone: { [Op.in]: phoneVariants }, is_active: true },
         });
         if (member && !member.user_id) await member.update({ user_id: userId });
     }
@@ -26,10 +35,13 @@ async function findMember(userId, userPhone, programId) {
 // GET /api/programs/user/
 exports.getMyPrograms = async (req, res) => {
     try {
+        const phoneVariants = req.user.phone
+            ? [...new Set([req.user.phone, normalizePhone(req.user.phone)])].filter(Boolean)
+            : [];
         const memberships = await ProgramMember.findAll({
-            where: { [require('sequelize').Op.or]: [
+            where: { [Op.or]: [
                 { user_id: req.user.id },
-                ...(req.user.phone ? [{ phone: req.user.phone }] : []),
+                ...(phoneVariants.length ? [{ phone: { [Op.in]: phoneVariants } }] : []),
             ], is_active: true },
             attributes: ['program_id'],
         });
@@ -205,10 +217,13 @@ exports.updatePostRecord = async (req, res) => {
             return res.status(403).json({ error: 'This record has been verified and is locked' });
 
         // Verify this record belongs to this user
+        const patchPhoneVariants = req.user.phone
+            ? [...new Set([req.user.phone, normalizePhone(req.user.phone)])].filter(Boolean)
+            : [];
         const member = await ProgramMember.findOne({
-            where: { id: record.member_id, [require('sequelize').Op.or]: [
+            where: { id: record.member_id, [Op.or]: [
                 { user_id: req.user.id },
-                ...(req.user.phone ? [{ phone: req.user.phone }] : []),
+                ...(patchPhoneVariants.length ? [{ phone: { [Op.in]: patchPhoneVariants } }] : []),
             ]},
         });
         if (!member) return res.status(403).json({ error: 'Access denied' });
