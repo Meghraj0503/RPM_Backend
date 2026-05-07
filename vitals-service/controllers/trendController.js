@@ -39,6 +39,129 @@ function resolvePeriodStart(period, days) {
     }
 }
 
+exports.getVitalsHistory = async (req, res) => {
+    const userId = req.user.id;
+    const { vital_type, date, startDate, endDate } = req.query;
+
+    if (!vital_type) {
+        return res.status(400).json({ error: 'vital_type is required' });
+    }
+
+    const hasDate = !!date;
+    const hasRange = !!(startDate && endDate);
+
+    if (!hasDate && !hasRange) {
+        return res.status(400).json({ error: 'Provide either date or both startDate and endDate' });
+    }
+    if (hasDate && hasRange) {
+        return res.status(400).json({ error: 'Provide either date or startDate + endDate, not both' });
+    }
+    if ((startDate && !endDate) || (!startDate && endDate)) {
+        return res.status(400).json({ error: 'Both startDate and endDate are required for range queries' });
+    }
+
+    try {
+        if (hasDate) {
+            const dayStart = new Date(date);
+            const dayEnd = new Date(date);
+            dayStart.setHours(0, 0, 0, 0);
+            dayEnd.setHours(23, 59, 59, 999);
+
+            if (isNaN(dayStart.getTime())) {
+                return res.status(400).json({ error: 'Invalid date format' });
+            }
+
+            const records = await sequelize.query(`
+                SELECT vital_value, vital_unit, is_manual, source, recorded_at
+                FROM user_vitals
+                WHERE user_id = :userId
+                  AND vital_type = :vital_type
+                  AND recorded_at BETWEEN :dayStart AND :dayEnd
+                ORDER BY recorded_at ASC
+            `, {
+                replacements: { userId, vital_type, dayStart, dayEnd },
+                type: sequelize.QueryTypes.SELECT
+            });
+
+            const values = records.map(r => Number(r.vital_value));
+            const summary = values.length ? {
+                avg: parseFloat((values.reduce((a, b) => a + b, 0) / values.length).toFixed(2)),
+                min: Math.min(...values),
+                max: Math.max(...values),
+                count: values.length
+            } : null;
+
+            return res.json({ vital_type, date, records, summary });
+        }
+
+        // Date range — weekly or monthly
+        const rangeStart = new Date(startDate);
+        const rangeEnd = new Date(endDate);
+        rangeStart.setHours(0, 0, 0, 0);
+        rangeEnd.setHours(23, 59, 59, 999);
+
+        if (isNaN(rangeStart.getTime()) || isNaN(rangeEnd.getTime())) {
+            return res.status(400).json({ error: 'Invalid date format in startDate or endDate' });
+        }
+        if (rangeStart > rangeEnd) {
+            return res.status(400).json({ error: 'startDate must be before endDate' });
+        }
+
+        const [records, daily] = await Promise.all([
+            sequelize.query(`
+                SELECT vital_value, vital_unit, is_manual, source, recorded_at
+                FROM user_vitals
+                WHERE user_id = :userId
+                  AND vital_type = :vital_type
+                  AND recorded_at BETWEEN :rangeStart AND :rangeEnd
+                ORDER BY recorded_at ASC
+            `, {
+                replacements: { userId, vital_type, rangeStart, rangeEnd },
+                type: sequelize.QueryTypes.SELECT
+            }),
+            sequelize.query(`
+                SELECT
+                    DATE(recorded_at AT TIME ZONE 'UTC') AS date,
+                    ROUND(AVG(vital_value)::numeric, 2)  AS avg,
+                    MIN(vital_value)                      AS min,
+                    MAX(vital_value)                      AS max,
+                    COUNT(*)                              AS count
+                FROM user_vitals
+                WHERE user_id = :userId
+                  AND vital_type = :vital_type
+                  AND recorded_at BETWEEN :rangeStart AND :rangeEnd
+                GROUP BY DATE(recorded_at AT TIME ZONE 'UTC')
+                ORDER BY date ASC
+            `, {
+                replacements: { userId, vital_type, rangeStart, rangeEnd },
+                type: sequelize.QueryTypes.SELECT
+            })
+        ]);
+
+        const allValues = records.map(r => Number(r.vital_value));
+        const summary = allValues.length ? {
+            avg: parseFloat((allValues.reduce((a, b) => a + b, 0) / allValues.length).toFixed(2)),
+            min: Math.min(...allValues),
+            max: Math.max(...allValues),
+            count: allValues.length
+        } : null;
+
+        const dailyFormatted = daily.map(d => ({
+            date: d.date,
+            avg: parseFloat(d.avg),
+            min: parseFloat(d.min),
+            max: parseFloat(d.max),
+            count: parseInt(d.count)
+        }));
+
+        return res.json({ vital_type, startDate, endDate, records, daily: dailyFormatted, summary });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: 'Server error fetching vitals history' });
+    }
+};
+
 exports.getVitalsTrends = async (req, res) => {
     const userId = req.user.id;
     const { period, days = 7, type } = req.query;
