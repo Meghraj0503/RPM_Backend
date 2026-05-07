@@ -1,4 +1,4 @@
-const { User, UserProfile, RefreshToken } = require('../models');
+const { User, UserProfile, RefreshToken, sequelize } = require('../models');
 const admin = require('../firebase');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
@@ -33,6 +33,17 @@ exports.verifyOtp = async (req, res) => {
             });
 
             await UserProfile.create({ user_id: user.id });
+
+            // Auto-link to any program_members with matching phone (last 10 digits)
+            const last10 = phoneNumber.replace(/\D/g, '').slice(-10);
+            if (last10) {
+                try {
+                    await sequelize.query(
+                        `UPDATE program_members SET user_id = :userId WHERE user_id IS NULL AND RIGHT(phone, 10) = :last10`,
+                        { replacements: { userId: user.id, last10 } }
+                    );
+                } catch { /* non-fatal if program_members table doesn't exist */ }
+            }
         }
 
         if (!user.is_active) {

@@ -27,7 +27,7 @@ function diffJson(oldData = {}, newData = {}) {
 /* ═══════════════════════════ MEMBERS ════════════════════════════ */
 
 exports.getMembers = async (req, res) => {
-    const { q, gender, is_active = 'true', page = 1, limit = 50 } = req.query;
+    const { q, gender, is_active = 'true', page = 1, limit = 50, include_status } = req.query;
     const where = { program_id: req.params.id };
     if (is_active !== 'all') where.is_active = is_active === 'true';
     if (gender) where.gender = gender;
@@ -43,7 +43,42 @@ exports.getMembers = async (req, res) => {
             where, order: [['external_id', 'ASC']],
             limit: Number(limit), offset: (Number(page) - 1) * Number(limit),
         });
-        res.json({ total: count, page: Number(page), members: rows });
+
+        let members = rows.map(r => r.toJSON());
+
+        if (include_status === 'true' && members.length > 0) {
+            const subPrograms = await SubProgram.findAll({
+                where: { program_id: req.params.id }, attributes: ['id'],
+            });
+            const subIds = subPrograms.map(s => s.id);
+            const memberIds = members.map(m => m.id);
+
+            const records = subIds.length > 0 ? await ProgramDataRecord.findAll({
+                where: { sub_program_id: { [Op.in]: subIds }, member_id: { [Op.in]: memberIds } },
+                attributes: ['member_id', 'phase', 'verification_status'],
+            }) : [];
+
+            const byMember = {};
+            records.forEach(r => {
+                if (!byMember[r.member_id]) byMember[r.member_id] = [];
+                byMember[r.member_id].push(r);
+            });
+
+            members = members.map(m => {
+                const recs = byMember[m.id] || [];
+                const pre  = recs.filter(r => r.phase === 'pre');
+                const post = recs.filter(r => r.phase === 'post');
+                return {
+                    ...m,
+                    pre_status:    pre.length  > 0 ? 'submitted' : 'pending',
+                    post_status:   post.length > 0 ? 'submitted' : 'not_due',
+                    post_verified: post.some(r => r.verification_status === 'verified')
+                        ? 'verified' : post.length > 0 ? 'awaiting' : null,
+                };
+            });
+        }
+
+        res.json({ total: count, page: Number(page), members });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
