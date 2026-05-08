@@ -1157,25 +1157,52 @@ exports.updateQuestionnaire = async (req, res) => {
 //         res.json({ message: 'Questionnaire deleted' });
 //     } catch (e) { res.status(500).json({ error: 'Deletion failed' }); }
 // };
+// exports.deleteQuestionnaire = async (req, res) => {
+//   try {
+//     console.log("Deleting questionnaire:", req.params.id);
+
+//     await QuestionnaireTemplate.destroy({
+//       where: { id: req.params.id }
+//     });
+
+//     res.json({ message: "Questionnaire deleted" });
+//   } catch (e) {
+//     console.error("deleteQuestionnaire failed");
+//     console.error("id:", req.params.id);
+//     console.error("message:", e.message);
+//     console.error("stack:", e.stack);
+
+//     res.status(500).json({ error: "Deletion failed" });
+//   }
+// };
 exports.deleteQuestionnaire = async (req, res) => {
+  const { id } = req.params;
+  const t = await sequelize.transaction();
+
   try {
-    console.log("Deleting questionnaire:", req.params.id);
+    await UserQuestionnaire.destroy({
+      where: { questionnaire_id: id },
+      transaction: t
+    });
 
     await QuestionnaireTemplate.destroy({
-      where: { id: req.params.id }
+      where: { id },
+      transaction: t
     });
+
+    await t.commit();
 
     res.json({ message: "Questionnaire deleted" });
   } catch (e) {
+    await t.rollback();
+
     console.error("deleteQuestionnaire failed");
-    console.error("id:", req.params.id);
+    console.error("id:", id);
     console.error("message:", e.message);
-    console.error("stack:", e.stack);
 
     res.status(500).json({ error: "Deletion failed" });
   }
 };
-
 exports.getQuestionnaireTargetUsers = async (req, res) => {
     try {
         const tmpl = await QuestionnaireTemplate.findByPk(req.params.id);
