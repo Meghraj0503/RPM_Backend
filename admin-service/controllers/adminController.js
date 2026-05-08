@@ -1151,11 +1151,29 @@ exports.updateQuestionnaire = async (req, res) => {
     } catch (e) { res.status(500).json({ error: 'Update failed' }); }
 };
 
+// exports.deleteQuestionnaire = async (req, res) => {
+//     try {
+//         await QuestionnaireTemplate.destroy({ where: { id: req.params.id } });
+//         res.json({ message: 'Questionnaire deleted' });
+//     } catch (e) { res.status(500).json({ error: 'Deletion failed' }); }
+// };
 exports.deleteQuestionnaire = async (req, res) => {
-    try {
-        await QuestionnaireTemplate.destroy({ where: { id: req.params.id } });
-        res.json({ message: 'Questionnaire deleted' });
-    } catch (e) { res.status(500).json({ error: 'Deletion failed' }); }
+  try {
+    console.log("Deleting questionnaire:", req.params.id);
+
+    await QuestionnaireTemplate.destroy({
+      where: { id: req.params.id }
+    });
+
+    res.json({ message: "Questionnaire deleted" });
+  } catch (e) {
+    console.error("deleteQuestionnaire failed");
+    console.error("id:", req.params.id);
+    console.error("message:", e.message);
+    console.error("stack:", e.stack);
+
+    res.status(500).json({ error: "Deletion failed" });
+  }
 };
 
 exports.getQuestionnaireTargetUsers = async (req, res) => {
