@@ -1099,14 +1099,18 @@ exports.getQuestionnaireDetail = async (req, res) => {
 };
 
 exports.createQuestionnaire = async (req, res) => {
-    const { title, category, type, questions } = req.body;
+    const { title, category, type, frequency_type, days_of_week, monthly_days, delivery_time, questions } = req.body;
     try {
         const tmpl = await QuestionnaireTemplate.create({
             title,
             category,
             type: type || 'One-Time',
             created_by: req.user?.name || 'Admin',
-            scheduled_days_after_enrollment: 0
+            scheduled_days_after_enrollment: 0,
+            frequency_type: frequency_type || 'weekly',
+            days_of_week: days_of_week || [],
+            monthly_days: monthly_days || [],
+            delivery_time: delivery_time || '09:00'
         });
 
         if (questions && questions.length > 0) {
@@ -1125,9 +1129,12 @@ exports.createQuestionnaire = async (req, res) => {
 };
 
 exports.updateQuestionnaire = async (req, res) => {
-    const { title, category, type, questions } = req.body;
+    const { title, category, type, frequency_type, days_of_week, monthly_days, delivery_time, questions } = req.body;
     try {
-        await QuestionnaireTemplate.update({ title, category, type }, { where: { id: req.params.id } });
+        await QuestionnaireTemplate.update(
+            { title, category, type, frequency_type, days_of_week, monthly_days, delivery_time },
+            { where: { id: req.params.id } }
+        );
 
         if (questions) {
             await Question.destroy({ where: { questionnaire_id: req.params.id } });

@@ -18,7 +18,11 @@ const QuestionnaireTemplate = sequelize.define('questionnaire_template', {
     category: { type: DataTypes.STRING },
     type: { type: DataTypes.STRING(50), defaultValue: 'One-Time' },
     created_by: { type: DataTypes.STRING(255) },
-    scheduled_days_after_enrollment: { type: DataTypes.INTEGER }
+    scheduled_days_after_enrollment: { type: DataTypes.INTEGER },
+    frequency_type: { type: DataTypes.STRING(20), defaultValue: 'weekly' },
+    days_of_week: { type: DataTypes.JSONB, defaultValue: [] },
+    monthly_days: { type: DataTypes.JSONB, defaultValue: [] },
+    delivery_time: { type: DataTypes.STRING(10), defaultValue: '09:00' }
 }, { tableName: 'questionnaire_templates', timestamps: true, createdAt: 'created_at', updatedAt: false });
 
 const Question = sequelize.define('question', {
