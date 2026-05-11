@@ -22,7 +22,7 @@ const User = sequelize.define('user', {
 const TrainingCategory = sequelize.define('training_category', {
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     name: { type: DataTypes.STRING(255), unique: true, allowNull: false }
-}, { tableName: 'training_categories', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
+}, { tableName: 'training_categories', timestamps: true});
 
 const TrainingModule = sequelize.define('training_module', {
     id: { type: DataTypes.STRING(20), primaryKey: true, defaultValue: Sequelize.literal("'TRN-' || nextval('trn_seq')") },
@@ -40,12 +40,12 @@ const TrainingModule = sequelize.define('training_module', {
     is_deleted: { type: DataTypes.BOOLEAN, defaultValue: false },
     created_by: { type: DataTypes.STRING(255) },
     expiry_date: { type: DataTypes.DATEONLY }
-}, { tableName: 'training_modules', createdAt: 'created_at', updatedAt: 'updated_at' });
+}, { tableName: 'training_modules', timestamps: true});
 
 const TrainingModuleCategory = sequelize.define('training_module_category', {
     module_id: { type: DataTypes.STRING(20), primaryKey: true },
     category_id: { type: DataTypes.INTEGER, primaryKey: true }
-}, { tableName: 'training_module_categories', timestamps: false });
+}, { tableName: 'training_module_categories', timestamps: true });
 
 const TrainingSession = sequelize.define('training_session', {
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
@@ -54,7 +54,7 @@ const TrainingSession = sequelize.define('training_session', {
     content_json: { type: DataTypes.JSONB },
     order_index: { type: DataTypes.INTEGER, defaultValue: 0 },
     duration_minutes: { type: DataTypes.INTEGER, defaultValue: 0 }
-}, { tableName: 'training_sessions', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
+}, { tableName: 'training_sessions', timestamps: true});
 
 const TrainingSessionProgress = sequelize.define('training_session_progress', {
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
