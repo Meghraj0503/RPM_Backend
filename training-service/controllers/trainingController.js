@@ -248,19 +248,53 @@ exports.getModuleById = async (req, res) => {
                     is_completed: topicProg.is_completed || false,
                     time_spent_seconds: topicProg.time_spent_seconds || 0
                 };
-                if (type === 'questionnaire' && topicProg.answers) {
-                    lesson.answers = topicProg.answers;
-                    lesson.score   = topicProg.score || null;
+
+                // ── Include full readable content per type ──────────────────
+
+                if (type === 'article') {
+                    // Full article content for the user to read
+                    lesson.content = {
+                        title:         topic.data?.title        || title,
+                        body:          topic.data?.body         || '',
+                        thumbnail_url: topic.data?.thumbnail_url || null,
+                        article_id:    topic.data?.article_id   || null
+                    };
                 }
-                // For audio_video topics, include the media items list
-                if (type === 'audio_video' && topic.data?.items) {
-                    lesson.media_items = topic.data.items.map(it => ({
-                        title:      it.title || '',
-                        url:        it.url || '',
-                        media_type: it.media_type || 'video',
-                        duration:   it.duration || ''
+
+                if (type === 'audio_video') {
+                    // All media files — YouTube links, uploaded videos, audios
+                    lesson.media_items = (topic.data?.items || []).map(it => ({
+                        title:      it.title      || '',
+                        url:        it.url        || '',
+                        media_type: it.media_type || 'video',   // 'video' | 'audio'
+                        duration:   it.duration   || ''
+                        // mobile: YouTube URLs → embed, direct .mp4/.mp3 → native player
                     }));
                 }
+
+                if (type === 'image') {
+                    // All images — uploaded files or external URLs
+                    lesson.images = (topic.data?.items || []).map(it => ({
+                        title: it.title || '',
+                        url:   it.url   || ''
+                    }));
+                }
+
+                if (type === 'questionnaire') {
+                    // Full questions + options so user can answer inline
+                    lesson.questions = (topic.data?.questions || []).map((q, qi) => ({
+                        id:      q.id   || qi,
+                        text:    q.text || `Question ${qi + 1}`,
+                        type:    q.type || 'Multiple choice',  // 'Multiple choice'|'Checkboxes'|'Dropdown'|'Short Answer'|'Paragraph'|'Rating'
+                        options: q.options || []
+                    }));
+                    // If user already answered, include their previous answers + score
+                    if (topicProg.answers) {
+                        lesson.user_answers = topicProg.answers;
+                        lesson.score        = topicProg.score || null;
+                    }
+                }
+
                 return lesson;
             });
 
