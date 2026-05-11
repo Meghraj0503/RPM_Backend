@@ -56,7 +56,11 @@ const TrainingSessionProgress = sequelize.define('training_session_progress', {
     user_id: { type: DataTypes.STRING(20) },
     session_id: { type: DataTypes.INTEGER },
     is_completed: { type: DataTypes.BOOLEAN, defaultValue: false },
-    completed_at: { type: DataTypes.DATE }
+    completed_at: { type: DataTypes.DATE },
+    time_spent_seconds: { type: DataTypes.INTEGER, defaultValue: 0 },
+    /* Array of per-topic progress objects:
+       { index, type, is_completed, time_spent_seconds, answers?, score? } */
+    content_progress: { type: DataTypes.JSONB, defaultValue: [] }
 }, { tableName: 'training_session_progress', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
 // Training relationships

@@ -5,10 +5,12 @@ const trainingController = require('../controllers/trainingController');
 
 router.use(authMiddleware);
 
-router.get('/categories', trainingController.getCategories);
-router.get('/modules', trainingController.getModules);
-router.get('/modules/:id', trainingController.getModuleById);
-router.get('/progress', trainingController.getProgress);
-router.post('/sessions/:sessionId/complete', trainingController.markSessionComplete);
+router.get('/categories',                         trainingController.getCategories);
+router.get('/modules',                            trainingController.getModules);
+router.get('/modules/:id',                        trainingController.getModuleById);
+router.get('/modules/:id/progress',               trainingController.getModuleProgress);
+router.get('/progress',                           trainingController.getProgress);
+router.post('/sessions/:sessionId/progress',      trainingController.updateSessionProgress);
+router.post('/sessions/:sessionId/complete',      trainingController.markSessionComplete);  // backward compat
 
 module.exports = router;
