@@ -66,7 +66,7 @@ const TrainingSessionProgress = sequelize.define('training_session_progress', {
     /* Array of per-topic progress objects:
        { index, type, is_completed, time_spent_seconds, answers?, score? } */
     content_progress: { type: DataTypes.JSONB, defaultValue: [] }
-}, { tableName: 'training_session_progress', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
+}, { tableName: 'training_session_progress', timestamps: true});
 
 // Training relationships
 TrainingModule.belongsToMany(TrainingCategory, { through: TrainingModuleCategory, foreignKey: 'module_id', as: 'categories' });
