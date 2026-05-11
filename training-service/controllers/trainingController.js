@@ -176,21 +176,39 @@ exports.getModules = async (req, res) => {
      more_from_category: [ { module_id, title, thumbnail_url, rating, difficulty_level, ... } ]
    }
 ─────────────────────────────────────────────────────────────────────── */
+// Map admin topic types → normalized mobile types + extract a sensible lesson title
+function normalizeTopic(topic, idx) {
+    const typeMap = { articles: 'article', audio_video: 'audio_video' };
+    const type = typeMap[topic.type] || topic.type || 'article';
+
+    let title = topic.title; // admin may have set an explicit title
+    if (!title) {
+        if (topic.type === 'articles')    title = topic.data?.title || `Article ${idx + 1}`;
+        else if (topic.type === 'audio_video') title = topic.data?.items?.[0]?.title || `Media ${idx + 1}`;
+        else if (topic.type === 'image')  title = topic.data?.items?.[0]?.title || `Image ${idx + 1}`;
+        else if (topic.type === 'questionnaire') title = `Questionnaire ${idx + 1}`;
+        else title = `${type.charAt(0).toUpperCase() + type.slice(1)} ${idx + 1}`;
+    }
+    return { type, title };
+}
+
 exports.getModuleById = async (req, res) => {
     try {
         const userId = req.user.id;
 
+        // ── Fetch module with sessions ordered correctly at top level ──
         const module = await TrainingModule.findOne({
             where: { id: req.params.id, is_deleted: false, is_published: true },
             include: [
                 { model: TrainingCategory, as: 'categories', attributes: ['id', 'name'] },
-                { model: TrainingSession, as: 'sessions', order: [['order_index', 'ASC']] }
-            ]
+                { model: TrainingSession, as: 'sessions' }
+            ],
+            order: [[ { model: TrainingSession, as: 'sessions' }, 'order_index', 'ASC' ]]
         });
         if (!module) return res.status(404).json({ error: 'Not Found' });
 
         const plain = module.get({ plain: true });
-        const sessions = (plain.sessions || []).sort((a, b) => a.order_index - b.order_index);
+        const sessions = plain.sessions || [];
 
         // Load user's progress for all sessions in this module
         const sessionIds = sessions.map(s => s.id);
@@ -215,27 +233,33 @@ exports.getModuleById = async (req, res) => {
             const topics = s.content_json?.topics || [];
             totalLessons += topics.length;
 
-            // Merge topic metadata with user's per-topic progress
             const contentProgress = Array.isArray(prog?.content_progress) ? prog.content_progress : [];
             const progressByIndex = {};
             for (const cp of contentProgress) progressByIndex[cp.index] = cp;
 
             const lessons = topics.map((topic, idx) => {
                 const topicProg = progressByIndex[idx] || {};
+                const { type, title } = normalizeTopic(topic, idx);
                 const lesson = {
                     index: idx,
-                    title: topic.title || `${topic.type ? topic.type.charAt(0).toUpperCase() + topic.type.slice(1) : 'Lesson'} ${idx + 1}`,
-                    type: topic.type || 'article',
-                    duration_minutes: topic.duration_minutes || topicProg.time_spent_seconds
-                        ? Math.round((topic.duration_minutes || 0))
-                        : 0,
+                    title,
+                    type,
+                    duration_minutes: topic.duration_minutes || 0,
                     is_completed: topicProg.is_completed || false,
                     time_spent_seconds: topicProg.time_spent_seconds || 0
                 };
-                // Include questionnaire answers/score if available
-                if (topic.type === 'questionnaire' && topicProg.answers) {
+                if (type === 'questionnaire' && topicProg.answers) {
                     lesson.answers = topicProg.answers;
-                    lesson.score = topicProg.score || null;
+                    lesson.score   = topicProg.score || null;
+                }
+                // For audio_video topics, include the media items list
+                if (type === 'audio_video' && topic.data?.items) {
+                    lesson.media_items = topic.data.items.map(it => ({
+                        title:      it.title || '',
+                        url:        it.url || '',
+                        media_type: it.media_type || 'video',
+                        duration:   it.duration || ''
+                    }));
                 }
                 return lesson;
             });
@@ -271,7 +295,8 @@ exports.getModuleById = async (req, res) => {
                              'duration_minutes', 'difficulty_level', 'instructor_name',
                              'rating', 'students_count'],
                 limit: 6,
-                order: [['created_at', 'DESC']]
+                order: [['id', 'DESC']],   // id is always in SELECT — no subquery issue
+                subQuery: false
             });
             moreLikeThis = others.map(m => ({
                 ...m.get({ plain: true }),
