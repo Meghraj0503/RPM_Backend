@@ -45,7 +45,7 @@ const TrainingModule = sequelize.define('training_module', {
 const TrainingModuleCategory = sequelize.define('training_module_category', {
     module_id: { type: DataTypes.STRING(20), primaryKey: true },
     category_id: { type: DataTypes.INTEGER, primaryKey: true }
-}, { tableName: 'training_module_categories', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at'  });
+}, { tableName: 'training_module_categories', timestamps: false });
 
 const TrainingSession = sequelize.define('training_session', {
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },

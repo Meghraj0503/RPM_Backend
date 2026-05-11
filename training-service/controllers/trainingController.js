@@ -92,7 +92,8 @@ exports.getHome = async (req, res) => {
             order: [['created_at', 'DESC']],
             limit: parseInt(limit),
             offset: parseInt(offset),
-            distinct: true
+            distinct: true,
+            subQuery: false
         });
 
         res.json({
@@ -137,7 +138,8 @@ exports.getModules = async (req, res) => {
             order: [['created_at', 'DESC']],
             limit: parseInt(limit),
             offset: parseInt(offset),
-            distinct: true
+            distinct: true,
+            subQuery: false
         });
 
         res.json({
