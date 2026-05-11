@@ -5,6 +5,7 @@ const trainingController = require('../controllers/trainingController');
 
 router.use(authMiddleware);
 
+router.get('/home',                               trainingController.getHome);
 router.get('/categories',                         trainingController.getCategories);
 router.get('/modules',                            trainingController.getModules);
 router.get('/modules/:id',                        trainingController.getModuleById);

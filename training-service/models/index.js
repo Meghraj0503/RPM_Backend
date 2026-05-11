@@ -32,6 +32,10 @@ const TrainingModule = sequelize.define('training_module', {
     duration_minutes: { type: DataTypes.INTEGER },
     thumbnail_url: { type: DataTypes.STRING(500) },
     difficulty_level: { type: DataTypes.STRING(50), defaultValue: 'Intermediate' },
+    instructor_name: { type: DataTypes.STRING(255) },
+    learning_objectives: { type: DataTypes.JSONB, defaultValue: [] },
+    rating: { type: DataTypes.DECIMAL(3, 1), defaultValue: null },
+    students_count: { type: DataTypes.INTEGER, defaultValue: 0 },
     is_published: { type: DataTypes.BOOLEAN, defaultValue: false },
     is_deleted: { type: DataTypes.BOOLEAN, defaultValue: false },
     created_by: { type: DataTypes.STRING(255) },
@@ -48,7 +52,8 @@ const TrainingSession = sequelize.define('training_session', {
     module_id: { type: DataTypes.STRING(20) },
     title: { type: DataTypes.STRING(255), allowNull: false },
     content_json: { type: DataTypes.JSONB },
-    order_index: { type: DataTypes.INTEGER, defaultValue: 0 }
+    order_index: { type: DataTypes.INTEGER, defaultValue: 0 },
+    duration_minutes: { type: DataTypes.INTEGER, defaultValue: 0 }
 }, { tableName: 'training_sessions', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
 
 const TrainingSessionProgress = sequelize.define('training_session_progress', {

@@ -21,12 +21,16 @@ exports.createModule = async (req, res) => {
     const t = await sequelize.transaction();
     try {
         const { title, short_description, full_description, duration_minutes, thumbnail_url,
-                difficulty_level, category_ids, sessions, expiry_date } = req.body;
+                difficulty_level, instructor_name, learning_objectives, rating, students_count,
+                category_ids, sessions, expiry_date } = req.body;
         if (!title) return res.status(400).json({ error: 'Title is required' });
 
         const newModule = await TrainingModule.create({
             title, short_description, full_description, duration_minutes, thumbnail_url,
-            difficulty_level, expiry_date: expiry_date || null,
+            difficulty_level, instructor_name: instructor_name || null,
+            learning_objectives: learning_objectives || [],
+            rating: rating || null, students_count: students_count || 0,
+            expiry_date: expiry_date || null,
             created_by: req.user ? req.user.id : 'Admin Auto'
         }, { transaction: t });
 
@@ -40,6 +44,7 @@ exports.createModule = async (req, res) => {
                 module_id: newModule.id,
                 title: s.title || `Unit ${idx + 1}`,
                 content_json: s.content_json || { topics: [] },
+                duration_minutes: s.duration_minutes || 0,
                 order_index: idx
             }));
             await TrainingSession.bulkCreate(mappedSessions, { transaction: t });
@@ -147,7 +152,8 @@ exports.updateModule = async (req, res) => {
     const t = await sequelize.transaction();
     try {
         const { title, short_description, full_description, duration_minutes, thumbnail_url,
-                difficulty_level, category_ids, sessions, expiry_date } = req.body;
+                difficulty_level, instructor_name, learning_objectives, rating, students_count,
+                category_ids, sessions, expiry_date } = req.body;
 
         const mod = await TrainingModule.findOne({ where: { id: req.params.id, is_deleted: false } });
         if (!mod) return res.status(404).json({ error: 'Not Found' });
@@ -155,6 +161,10 @@ exports.updateModule = async (req, res) => {
         await mod.update({
             title, short_description, full_description,
             duration_minutes, thumbnail_url, difficulty_level,
+            instructor_name: instructor_name !== undefined ? instructor_name : mod.instructor_name,
+            learning_objectives: learning_objectives !== undefined ? learning_objectives : mod.learning_objectives,
+            rating: rating !== undefined ? rating : mod.rating,
+            students_count: students_count !== undefined ? students_count : mod.students_count,
             expiry_date: expiry_date !== undefined ? (expiry_date || null) : mod.expiry_date
         }, { transaction: t });
 
@@ -176,6 +186,7 @@ exports.updateModule = async (req, res) => {
                         module_id: mod.id,
                         title: s.title || `Unit ${idx + 1}`,
                         content_json: s.content_json || { topics: [] },
+                        duration_minutes: s.duration_minutes || 0,
                         order_index: idx
                     })),
                     { transaction: t }
