@@ -141,6 +141,7 @@ router.put('/training/modules/:id', trainingController.updateModule);
 router.put('/training/modules/:id/publish', trainingController.togglePublish);
 router.delete('/training/modules/:id', trainingController.deleteModule);
 router.get('/training/users/:userId/progress', trainingController.getUserTrainingProgress);
+router.get('/training/modules/:id/users-progress', trainingController.getModuleUsersProgress);
 
 module.exports = router;
 
