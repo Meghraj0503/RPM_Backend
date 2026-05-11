@@ -40,7 +40,7 @@ const TrainingModule = sequelize.define('training_module', {
     is_deleted: { type: DataTypes.BOOLEAN, defaultValue: false },
     created_by: { type: DataTypes.STRING(255) },
     expiry_date: { type: DataTypes.DATEONLY }
-}, { tableName: 'training_modules', timestamps: true, createdAt: 'created_at', updatedAt: 'updated_at' });
+}, { tableName: 'training_modules', timestamps: true});
 
 const TrainingModuleCategory = sequelize.define('training_module_category', {
     module_id: { type: DataTypes.STRING(20), primaryKey: true },
