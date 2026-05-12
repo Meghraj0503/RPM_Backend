@@ -42,6 +42,48 @@ exports.verifyOtp = async (req, res) => {
                         `UPDATE program_members SET user_id = :userId WHERE user_id IS NULL AND RIGHT(phone, 10) = :last10`,
                         { replacements: { userId: user.id, last10 } }
                     );
+
+                    // Find every program this user was just linked to
+                    const linkedPrograms = await sequelize.query(
+                        `SELECT DISTINCT p.id AS program_id, p.name AS program_name
+                         FROM program_members pm
+                         JOIN programs p ON p.id = pm.program_id
+                         WHERE pm.user_id = :userId`,
+                        { replacements: { userId: user.id }, type: sequelize.QueryTypes.SELECT }
+                    );
+
+                    for (const prog of linkedPrograms) {
+                        // Create subscription only if not already existing for this program
+                        await sequelize.query(
+                            `INSERT INTO user_subscriptions
+                               (user_id, program_name, enrolled_by, start_date, expiry_date, status, validity_days, created_at, updated_at)
+                             SELECT :userId, :progName, 'System Auto',
+                                    NOW(), NOW() + INTERVAL '365 days', 'Active', 365, NOW(), NOW()
+                             WHERE NOT EXISTS (
+                                 SELECT 1 FROM user_subscriptions
+                                 WHERE user_id = :userId AND program_name = :progName
+                             )`,
+                            { replacements: { userId: user.id, progName: prog.program_name } }
+                        );
+                        // Enrollment audit log
+                        await sequelize.query(
+                            `INSERT INTO subscription_audit_logs
+                               (user_id, admin_id, action, program_name, new_status, created_at)
+                             VALUES (:userId, 'SYSTEM', 'AUTO_ASSIGNED', :progName, 'Active', NOW())`,
+                            { replacements: { userId: user.id, progName: prog.program_name } }
+                        );
+                        // User audit trail
+                        await sequelize.query(
+                            `INSERT INTO user_audit_logs
+                               (user_id, admin_id, action_type, category, changes_json, created_at, updated_at)
+                             VALUES (:userId, 'SYSTEM', 'PROGRAM_AUTO_ASSIGNED', 'Program',
+                                     :changes::jsonb, NOW(), NOW())`,
+                            { replacements: {
+                                userId: user.id,
+                                changes: JSON.stringify({ program: prog.program_name, source: 'phone_match_on_registration' })
+                            }}
+                        );
+                    }
                 } catch { /* non-fatal if program_members table doesn't exist */ }
             }
         }

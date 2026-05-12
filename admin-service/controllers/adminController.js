@@ -526,8 +526,7 @@ exports.getUserDetail = async (req, res) => {
             include: [UserProfile, UserMedicalCondition, UserLifestyle,
                 { model: UserMedication, required: false },
                 { model: UserAllergy, required: false },
-                { model: UserDevice, required: false },
-                { model: UserSubscription, required: false }]
+                { model: UserDevice, required: false }]
         });
         if (!user) return res.status(404).json({ error: 'User not found' });
 
@@ -546,8 +545,55 @@ exports.getUserDetail = async (req, res) => {
         const alerts = await UserAlert.findAll({
             where: { user_id: userId }, order: [['created_at', 'DESC']], limit: 10
         });
+        // All subscriptions (one per program) — most recent first
+        let subscriptions = await UserSubscription.findAll({
+            where: { user_id: userId },
+            order: [['created_at', 'DESC']]
+        });
 
-        res.json({ user, vitals, questionnaires, alerts });
+        // Backfill: if user is in program_members but has no subscription row yet
+        // (covers users who registered before auto-create code was deployed)
+        try {
+            const existingNames = new Set(subscriptions.map(s => s.program_name));
+            const linkedPrograms = await sequelize.query(
+                `SELECT DISTINCT p.name AS program_name, pm.joined_at
+                 FROM program_members pm
+                 JOIN programs p ON p.id = pm.program_id
+                 WHERE pm.user_id = :userId`,
+                { replacements: { userId }, type: sequelize.QueryTypes.SELECT }
+            );
+            for (const lp of linkedPrograms) {
+                if (!existingNames.has(lp.program_name)) {
+                    const now = new Date();
+                    const expiry = new Date(now);
+                    expiry.setDate(expiry.getDate() + 365);
+                    await UserSubscription.create({
+                        user_id: userId, program_name: lp.program_name,
+                        enrolled_by: 'System Auto', status: 'Active',
+                        start_date: lp.joined_at || now,
+                        expiry_date: expiry, validity_days: 365
+                    });
+                    await SubscriptionAuditLog.create({
+                        user_id: userId, admin_id: 'SYSTEM',
+                        action: 'AUTO_ASSIGNED', program_name: lp.program_name, new_status: 'Active'
+                    });
+                    await UserAuditLog.create({
+                        user_id: userId, admin_id: 'SYSTEM',
+                        action_type: 'PROGRAM_AUTO_ASSIGNED', category: 'Program',
+                        changes_json: { program: lp.program_name, source: 'backfill_on_admin_view' }
+                    });
+                }
+            }
+            // Re-fetch if anything was created
+            if (linkedPrograms.some(lp => !existingNames.has(lp.program_name))) {
+                subscriptions = await UserSubscription.findAll({
+                    where: { user_id: userId },
+                    order: [['created_at', 'DESC']]
+                });
+            }
+        } catch { /* non-fatal — program_members table may not exist in all envs */ }
+
+        res.json({ user, vitals, questionnaires, alerts, subscriptions });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Failed fetching user detail' });
@@ -773,25 +819,28 @@ exports.assignSubscription = async (req, res) => {
         const progName = program_name || 'Wellness Program 2025';
         const enrolledBy = enrolled_by || req.user?.name || 'Admin';
 
-        let sub = await UserSubscription.findOne({ where: { user_id: userId } });
-        const prevProgram = sub?.program_name || null;
+        // Each program gets its own subscription row; reactivate if already exists and removed
+        let sub = await UserSubscription.findOne({ where: { user_id: userId, program_name: progName } });
         if (sub) {
-            await sub.update({ start_date, expiry_date, status: 'Active', validity_days, program_name: progName, enrolled_by: enrolledBy });
+            await sub.update({ start_date, expiry_date, status: 'Active', validity_days, enrolled_by: enrolledBy });
         } else {
             sub = await UserSubscription.create({ user_id: userId, start_date, expiry_date, status: 'Active', validity_days, program_name: progName, enrolled_by: enrolledBy });
         }
 
-        const action = prevProgram && prevProgram !== progName ? 'PROGRAM_CHANGED' : 'ASSIGNED';
-        await SubscriptionAuditLog.create({ user_id: userId, admin_id: req.user.id, action, program_name: progName, reason: reason || null, previous_status: prevProgram, new_status: 'Active' });
+        await SubscriptionAuditLog.create({ user_id: userId, admin_id: req.user.id, action: 'ASSIGNED', program_name: progName, reason: reason || null, new_status: 'Active' });
+        await UserAuditLog.create({ user_id: userId, admin_id: req.user.id, action_type: 'PROGRAM_ASSIGNED', category: 'Program', changes_json: { program: progName, enrolled_by: enrolledBy } });
         res.json({ message: 'Subscription assigned', subscription: sub });
     } catch (e) { console.error(e); res.status(500).json({ error: 'Subscription assignment failed' }); }
 };
 
 exports.changeProgram = async (req, res) => {
-    const { program_name, start_date: reqStartDate, reason } = req.body;
+    const { program_name, start_date: reqStartDate, reason, subscription_id } = req.body;
     const userId = req.params.id;
     try {
-        let sub = await UserSubscription.findOne({ where: { user_id: userId } });
+        const whereClause = subscription_id
+            ? { id: subscription_id, user_id: userId }
+            : { user_id: userId };
+        let sub = await UserSubscription.findOne({ where: whereClause });
         const prevProgram = sub?.program_name || null;
         const start_date = reqStartDate ? new Date(reqStartDate) : new Date();
         const expiry_date = new Date(start_date);
@@ -808,12 +857,16 @@ exports.changeProgram = async (req, res) => {
 };
 
 exports.suspendSubscription = async (req, res) => {
-    const { reason } = req.body || {};
+    const { reason, subscription_id } = req.body || {};
     try {
-        const sub = await UserSubscription.findOne({ where: { user_id: req.params.id } });
-        await UserSubscription.update({ status: 'Removed' }, { where: { user_id: req.params.id } });
-        await SubscriptionAuditLog.create({ user_id: req.params.id, admin_id: req.user.id, action: 'REMOVED', program_name: sub?.program_name, reason: reason || null, previous_status: 'Active', new_status: 'Removed' });
-        await UserAuditLog.create({ user_id: req.params.id, admin_id: req.user.id, action_type: 'REMOVED_FROM_PROGRAM', category: 'Program', changes_json: { program: sub?.program_name, reason: reason || null } });
+        const whereClause = subscription_id
+            ? { id: subscription_id, user_id: req.params.id }
+            : { user_id: req.params.id, status: 'Active' };
+        const sub = await UserSubscription.findOne({ where: whereClause });
+        if (!sub) return res.status(404).json({ error: 'Subscription not found' });
+        await sub.update({ status: 'Removed' });
+        await SubscriptionAuditLog.create({ user_id: req.params.id, admin_id: req.user.id, action: 'REMOVED', program_name: sub.program_name, reason: reason || null, previous_status: 'Active', new_status: 'Removed' });
+        await UserAuditLog.create({ user_id: req.params.id, admin_id: req.user.id, action_type: 'REMOVED_FROM_PROGRAM', category: 'Program', changes_json: { program: sub.program_name, reason: reason || null } });
         res.json({ message: 'User removed from program' });
     } catch (e) { res.status(500).json({ error: 'Removal failed' }); }
 };
