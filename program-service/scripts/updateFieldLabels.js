@@ -261,24 +261,35 @@ async function main() {
     await sequelize.authenticate();
     console.log('Connected. Updating field labels...\n');
 
+    const subNames = { 4: 'Nutrition', 5: 'Physical Activity', 6: 'Mental', 7: 'Social', 8: 'Sleep' };
+
     for (const [subProgramId, questions] of Object.entries(QUESTIONS)) {
         const subId = parseInt(subProgramId);
-        let updated = 0, missing = 0;
 
-        for (let i = 0; i < questions.length; i++) {
-            const fieldKey = `q_${i + 1}`;
-            const label    = questions[i];
+        // Fetch actual field rows ordered by sort_order — works regardless of field_key format
+        const fields = await DatasetField.findAll({
+            where: { sub_program_id: subId },
+            order: [['sort_order', 'ASC']],
+        });
 
-            const [count] = await DatasetField.update(
-                { field_label: label },
-                { where: { sub_program_id: subId, field_key: fieldKey } }
-            );
-            if (count > 0) updated++;
-            else missing++;
+        if (fields.length === 0) {
+            console.log(`${subNames[subId]} (sub_program_id=${subId}): no fields found in DB — skipping`);
+            continue;
         }
 
-        const subNames = { 4: 'Nutrition', 5: 'Physical Activity', 6: 'Mental', 7: 'Social', 8: 'Sleep' };
-        console.log(`${subNames[subId]} (sub_program_id=${subId}): ${updated} updated, ${missing} not found`);
+        let updated = 0, skipped = 0;
+        for (let i = 0; i < questions.length; i++) {
+            const field = fields[i];
+            if (!field) { skipped++; continue; }
+
+            await DatasetField.update(
+                { field_label: questions[i] },
+                { where: { id: field.id } }
+            );
+            updated++;
+        }
+
+        console.log(`${subNames[subId]} (sub_program_id=${subId}): ${updated} updated, ${skipped} skipped (field_key=${fields[0]?.field_key})`);
     }
 
     console.log('\nDone.');
