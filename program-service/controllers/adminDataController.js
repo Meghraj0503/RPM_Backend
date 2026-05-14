@@ -270,7 +270,7 @@ exports.getMemberData = async (req, res) => {
 
         const subs = await SubProgram.findAll({
             where: { program_id: member.program_id },
-            include: [{ model: DatasetField, as: 'fields', order: [['sort_order', 'ASC']] }],
+            include: [{ model: DatasetField, as: 'fields', separate: true, order: [['sort_order', 'ASC']] }],
         });
 
         const data = await Promise.all(subs.map(async sub => {
@@ -474,7 +474,7 @@ exports.getSubProgramAllMembersData = async (req, res) => {
     const { phase = 'pre' } = req.query;
     try {
         const sub = await SubProgram.findByPk(req.params.subId, {
-            include: [{ model: DatasetField, as: 'fields', order: [['sort_order', 'ASC']] }],
+            include: [{ model: DatasetField, as: 'fields', separate: true, order: [['sort_order', 'ASC']] }],
         });
         if (!sub) return res.status(404).json({ error: 'Sub-program not found' });
 
