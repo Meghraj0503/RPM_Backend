@@ -297,39 +297,65 @@ async function cmdImportMembers(args) {
 /* ════════════════════ Command: import records ══════════════════════════ */
 
 async function cmdImportRecords(args) {
-    const fileIdx  = args.indexOf('--file');
-    const subIdx   = args.indexOf('--sub-program-id');
-    const phaseIdx = args.indexOf('--phase');
+    const fileIdx       = args.indexOf('--file');
+    const subIdx        = args.indexOf('--sub-program-id');
+    const phaseIdx      = args.indexOf('--phase');
+    const createMissing = args.includes('--create-missing');
+
     if (fileIdx === -1 || subIdx === -1 || phaseIdx === -1) {
-        console.error('Usage: importData.js records --file <csv> --sub-program-id <id> --phase pre|post');
+        console.error('Usage: importData.js records --file <csv> --sub-program-id <id> --phase pre|post [--create-missing]');
         process.exit(1);
     }
-    const filePath    = args[fileIdx + 1];
-    const subId       = parseInt(args[subIdx + 1]);
-    const phase       = args[phaseIdx + 1];
+    const filePath = args[fileIdx + 1];
+    const subId    = parseInt(args[subIdx + 1]);
+    const phase    = args[phaseIdx + 1];
 
     const sub = await SubProgram.findByPk(subId);
     if (!sub) { console.error(`Sub-program ${subId} not found`); process.exit(1); }
 
-    const fields = await DatasetField.findAll({ where: { sub_program_id: subId }, order: [['sort_order', 'ASC']] });
+    const fields    = await DatasetField.findAll({ where: { sub_program_id: subId }, order: [['sort_order', 'ASC']] });
     const fieldKeys = fields.map(f => f.field_key);
 
     console.log(`Importing ${phase.toUpperCase()} records for "${sub.name}" from ${filePath}...`);
+    if (createMissing) console.log('  --create-missing: members not in DB will be auto-created from TSV columns.');
+
     const { headers, records } = await parseCsv(filePath);
 
     // Columns: [ID, Name, Gender, Age, ...data columns...]
-    // data columns start at index 4 and map to field_keys in order
     const dataCols = headers.slice(4);
 
-    let inserted = 0, updated = 0, missing = 0;
+    let inserted = 0, updated = 0, created = 0;
+    const missingIds = [];
+
     for (const row of records) {
         const externalId = (row[headers[0]] || '').trim();
         if (!externalId) continue;
 
-        const member = await ProgramMember.findOne({
+        let member = await ProgramMember.findOne({
             where: { program_id: sub.program_id, external_id: externalId },
         });
-        if (!member) { missing++; continue; }
+
+        if (!member) {
+            if (createMissing) {
+                // Auto-create member from TSV row (columns 1=Name, 2=Gender, 3=Age)
+                const name   = (row[headers[1]] || '').trim();
+                const gender = (row[headers[2]] || '').trim();
+                const age    = row[headers[3]] ? parseInt(row[headers[3]]) : null;
+                member = await ProgramMember.create({
+                    program_id:  sub.program_id,
+                    external_id: externalId,
+                    name:        name || externalId,
+                    gender:      gender || null,
+                    age:         isNaN(age) ? null : age,
+                    created_by:  'import',
+                });
+                created++;
+                console.log(`  ✓ Created missing member: ${externalId} — ${name}`);
+            } else {
+                missingIds.push(externalId);
+                continue;
+            }
+        }
 
         // Build data_json: map column index → field_key
         const dataJson = {};
@@ -359,7 +385,13 @@ async function cmdImportRecords(args) {
         const total = inserted + updated;
         if (total % 100 === 0) process.stdout.write(`  ${total} processed...\r`);
     }
-    console.log(`\nDone. Inserted: ${inserted}, Updated: ${updated}, Members not found: ${missing}`);
+
+    console.log(`\nDone. Inserted: ${inserted}, Updated: ${updated}, Members auto-created: ${created}, Members not found: ${missingIds.length}`);
+    if (missingIds.length > 0) {
+        console.log('\nMissing external_ids (not in program_members, record skipped):');
+        missingIds.forEach(id => console.log(`  ${id}`));
+        console.log('\nTo auto-create these members and import their records, re-run with --create-missing');
+    }
 }
 
 /* ═══════════════════════════ Entry ══════════════════════════════════════ */
