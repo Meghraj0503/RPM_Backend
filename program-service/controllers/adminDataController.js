@@ -6,6 +6,11 @@ const {
     sequelize,
 } = require('../models');
 
+/* Diet and BIA logic change — hide sub-programs id=1 (Diet) and id=2 (BIA) from all
+   admin-facing responses. Data is preserved in the DB; only excluded from API output.
+   To re-enable, remove the IDs from this array. */
+const EXCLUDED_SUB_PROGRAM_IDS = [1, 2];
+
 /* ──────────────────────────── helpers ───────────────────── */
 
 async function writeAudit({ record_id, sub_program_id, program_id, member_id, phase, action, changed_fields, changed_by, changed_by_role }) {
@@ -47,8 +52,10 @@ exports.getMembers = async (req, res) => {
         let members = rows.map(r => r.toJSON());
 
         if (include_status === 'true' && members.length > 0) {
+            // Diet and BIA logic change
             const subPrograms = await SubProgram.findAll({
-                where: { program_id: req.params.id }, attributes: ['id'],
+                where: { program_id: req.params.id, id: { [Op.notIn]: EXCLUDED_SUB_PROGRAM_IDS } },
+                attributes: ['id'],
             });
             const subIds = subPrograms.map(s => s.id);
             const memberIds = members.map(m => m.id);
@@ -169,8 +176,10 @@ exports.getUserPrograms = async (req, res) => {
         });
 
         const result = await Promise.all(members.map(async m => {
+            // Diet and BIA logic change
             const subPrograms = await SubProgram.findAll({
-                where: { program_id: m.program_id }, attributes: ['id', 'name'],
+                where: { program_id: m.program_id, id: { [Op.notIn]: EXCLUDED_SUB_PROGRAM_IDS } },
+                attributes: ['id', 'name'],
             });
             const dataSummary = await Promise.all(subPrograms.map(async sub => {
                 const [pre, post, optOut] = await Promise.all([
@@ -218,7 +227,10 @@ exports.getMemberDetail = async (req, res) => {
         });
         if (!member) return res.status(404).json({ error: 'Member not found' });
 
-        const subs = await SubProgram.findAll({ where: { program_id: member.program_id } });
+        // Diet and BIA logic change
+        const subs = await SubProgram.findAll({
+            where: { program_id: member.program_id, id: { [Op.notIn]: EXCLUDED_SUB_PROGRAM_IDS } },
+        });
         const summary = await Promise.all(subs.map(async sub => {
             const pre = await ProgramDataRecord.findOne({
                 where: { sub_program_id: sub.id, member_id: member.id, phase: 'pre' },
@@ -268,8 +280,9 @@ exports.getMemberData = async (req, res) => {
         const member = await ProgramMember.findByPk(req.params.memberId);
         if (!member) return res.status(404).json({ error: 'Member not found' });
 
+        // Diet and BIA logic change
         const subs = await SubProgram.findAll({
-            where: { program_id: member.program_id },
+            where: { program_id: member.program_id, id: { [Op.notIn]: EXCLUDED_SUB_PROGRAM_IDS } },
             include: [{ model: DatasetField, as: 'fields', separate: true, order: [['sort_order', 'ASC']] }],
         });
 
@@ -471,6 +484,9 @@ exports.importRecords = async (req, res) => {
 
 // Get members with their data for comparison view (all members in a sub-program)
 exports.getSubProgramAllMembersData = async (req, res) => {
+    // Diet and BIA logic change
+    if (EXCLUDED_SUB_PROGRAM_IDS.includes(Number(req.params.subId)))
+        return res.status(404).json({ error: 'Sub-program not found' });
     const { phase = 'pre' } = req.query;
     try {
         const sub = await SubProgram.findByPk(req.params.subId, {

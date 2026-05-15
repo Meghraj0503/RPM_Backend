@@ -5,6 +5,11 @@ const {
     ProgramDataRecord, ProgramAuditLog,
 } = require('../models');
 
+/* Diet and BIA logic change — hide sub-programs id=1 (Diet) and id=2 (BIA) from all
+   user-facing responses. Data is preserved in the DB; only excluded from API output.
+   To re-enable, remove the IDs from this array. */
+const EXCLUDED_SUB_PROGRAM_IDS = [1, 2];
+
 /* ─────────────────────── helper ─────────────────────────── */
 
 // Strips country code prefixes so "+919566776106" and "9566776106" both → "9566776106"
@@ -50,7 +55,12 @@ exports.getMyPrograms = async (req, res) => {
 
         const programs = await Program.findAll({
             where: { id: programIds },
-            include: [{ model: SubProgram, as: 'sub_programs', attributes: ['id', 'name', 'description', 'start_date', 'end_date', 'opt_out_enabled'] }],
+            include: [{
+                model: SubProgram, as: 'sub_programs',
+                attributes: ['id', 'name', 'description', 'start_date', 'end_date', 'opt_out_enabled'],
+                // Diet and BIA logic change
+                where: { id: { [Op.notIn]: EXCLUDED_SUB_PROGRAM_IDS } }, required: false,
+            }],
             order: [['start_date', 'DESC']],
         });
         res.json({ programs });
@@ -64,9 +74,10 @@ exports.getProgramDetail = async (req, res) => {
     try {
         const program = await Program.findByPk(req.params.id, {
             include: [{
-                model: SubProgram,
-                as: 'sub_programs',
+                model: SubProgram, as: 'sub_programs',
                 attributes: ['id', 'name', 'description', 'start_date', 'end_date', 'opt_out_enabled'],
+                // Diet and BIA logic change
+                where: { id: { [Op.notIn]: EXCLUDED_SUB_PROGRAM_IDS } }, required: false,
             }],
         });
         if (!program) return res.status(404).json({ error: 'Program not found' });
@@ -92,6 +103,9 @@ exports.getProgramDetail = async (req, res) => {
 
 // POST /api/programs/user/sub-programs/:id/opt-out
 exports.optOut = async (req, res) => {
+    // Diet and BIA logic change
+    if (EXCLUDED_SUB_PROGRAM_IDS.includes(Number(req.params.id)))
+        return res.status(404).json({ error: 'Sub-program not found' });
     try {
         const sub = await SubProgram.findByPk(req.params.id);
         if (!sub) return res.status(404).json({ error: 'Sub-program not found' });
@@ -117,6 +131,9 @@ exports.optOut = async (req, res) => {
 
 // GET /api/programs/user/sub-programs/:id/data — user's pre + post records for a sub-program
 exports.getSubProgramData = async (req, res) => {
+    // Diet and BIA logic change
+    if (EXCLUDED_SUB_PROGRAM_IDS.includes(Number(req.params.id)))
+        return res.status(404).json({ error: 'Sub-program not found' });
     try {
         const sub = await SubProgram.findByPk(req.params.id, {
             include: [{ model: DatasetField, as: 'fields', separate: true, order: [['sort_order', 'ASC']] }],
@@ -150,6 +167,9 @@ exports.getSubProgramData = async (req, res) => {
 
 // POST /api/programs/user/sub-programs/:id/data — create or replace post record
 exports.submitPostData = async (req, res) => {
+    // Diet and BIA logic change
+    if (EXCLUDED_SUB_PROGRAM_IDS.includes(Number(req.params.id)))
+        return res.status(404).json({ error: 'Sub-program not found' });
     const { data_json, notes } = req.body;
     if (!data_json || typeof data_json !== 'object')
         return res.status(400).json({ error: 'data_json object is required' });
@@ -239,6 +259,8 @@ exports.getMyDashboard = async (req, res) => {
             include: [{
                 model: SubProgram, as: 'sub_programs',
                 attributes: ['id', 'name', 'description', 'start_date', 'end_date', 'opt_out_enabled'],
+                // Diet and BIA logic change
+                where: { id: { [Op.notIn]: EXCLUDED_SUB_PROGRAM_IDS } }, required: false,
             }],
             order: [['start_date', 'DESC']],
         });
@@ -317,7 +339,11 @@ exports.getMyDashboard = async (req, res) => {
 exports.getProgramReport = async (req, res) => {
     try {
         const program = await Program.findByPk(req.params.id, {
-            include: [{ model: SubProgram, as: 'sub_programs', attributes: ['id', 'name', 'opt_out_enabled'] }],
+            include: [{
+                model: SubProgram, as: 'sub_programs', attributes: ['id', 'name', 'opt_out_enabled'],
+                // Diet and BIA logic change
+                where: { id: { [Op.notIn]: EXCLUDED_SUB_PROGRAM_IDS } }, required: false,
+            }],
         });
         if (!program) return res.status(404).json({ error: 'Program not found' });
 
