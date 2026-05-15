@@ -178,7 +178,8 @@ function parseCsv(filePath) {
                 headers.forEach((h, i) => { obj[h] = row[i] ?? ''; });
                 return obj;
             });
-            resolve({ headers, records });
+            // rawRows: full 2-D array of raw cell values (needed for two-row header detection)
+            resolve({ headers, records, rawRows: rows });
         });
         rl.on('error', reject);
     });
@@ -401,24 +402,31 @@ async function cmdImportRecords(args) {
 }
 
 /* ════════════════════ Command: import visits (wide format) ═════════════ */
-// Handles tracking data where Col3 = single PRE value and Col4+ = repeated POST visit columns.
-// Field definitions (DatasetField) are auto-created from the TSV column headers.
+// Handles two layouts:
+//   Single-row header: Col0=ID, Col1=Name, Col2=Gender, Col3=PRE label, Col4+=Visit labels
+//   Two-row header  : Row0 has group labels (ID/Name/Gender/PRE/POST merged),
+//                     Row1 has per-visit labels starting at col4 (Google Sheets merged-cell export)
+//
+// Field definitions (DatasetField) are auto-created from column labels.
+// Use --reset-post to wipe old (incorrectly imported) POST fields and records first.
 
 function toFieldKey(label) {
     return label.toLowerCase()
         .replace(/[^a-z0-9\s]/g, ' ')
         .trim()
         .replace(/\s+/g, '_')
-        .replace(/_+/g, '_');
+        .replace(/_+/g, '_')
+        .substring(0, 80); // Postgres column-name safety
 }
 
 async function cmdImportVisits(args) {
     const fileIdx       = args.indexOf('--file');
     const subIdx        = args.indexOf('--sub-program-id');
     const createMissing = args.includes('--create-missing');
+    const resetPost     = args.includes('--reset-post');
 
     if (fileIdx === -1 || subIdx === -1) {
-        console.error('Usage: importData.js visits --file <tsv> --sub-program-id <id> [--create-missing]');
+        console.error('Usage: importData.js visits --file <tsv> --sub-program-id <id> [--create-missing] [--reset-post]');
         process.exit(1);
     }
     const filePath = args[fileIdx + 1];
@@ -427,48 +435,75 @@ async function cmdImportVisits(args) {
     const sub = await SubProgram.findByPk(subId);
     if (!sub) { console.error(`Sub-program ${subId} not found`); process.exit(1); }
 
-    const { headers, records } = await parseCsv(filePath);
-    // Expected layout: Col0=ID, Col1=Name, Col2=Gender, Col3=PRE value, Col4+=Visit columns
-    if (headers.length < 5) {
-        console.error('Expected at least 5 columns: ID, Name, Gender, PRE value, and at least one visit column.');
-        process.exit(1);
+    const { rawRows } = await parseCsv(filePath);
+    if (!rawRows || rawRows.length < 2) {
+        console.error('File appears empty or has only one row.'); process.exit(1);
     }
 
-    const preHeader    = headers[3];
-    const visitHeaders = headers.slice(4);
-    const preKey       = toFieldKey(preHeader);
+    const row0 = rawRows[0] || [];
+    const row1 = rawRows[1] || [];
+
+    // ── Detect two-row header (Google Sheets merged-cell export) ──────────
+    // Signature: row1 cols 0-3 are empty AND row1 col 4 is a non-empty visit label
+    const twoRowHeader = !row1[0] && !row1[1] && !row1[2] && !row1[3] && !!(row1[4] || '').trim();
+
+    const preLabel  = (row0[3] || '').trim();
+    if (!preLabel) { console.error('Cannot detect PRE column label at column index 3.'); process.exit(1); }
+
+    // Visit labels: from row1 cols 4+ (two-row) or row0 cols 4+ (single-row)
+    const labelRow  = twoRowHeader ? row1 : row0;
+    const rawVisits = labelRow.slice(4);
+    const visitCols = rawVisits
+        .map((label, i) => ({ label: label.trim(), colIndex: 4 + i }))
+        .filter(v => v.label); // skip empty-label columns
+
+    // Data rows: skip header rows, skip empty/non-member rows
+    const skipRows  = twoRowHeader ? 2 : 1;
+    const dataRows  = rawRows.slice(skipRows).filter(r => r[0] && r[0].trim() && r[0].trim() !== 'ID');
+
+    const preKey = toFieldKey(preLabel);
 
     console.log(`\nImporting visit data for sub-program "${sub.name}" (id=${subId})`);
-    console.log(`  File    : ${filePath}`);
-    console.log(`  PRE col : "${preHeader}" → field_key: "${preKey}"`);
-    console.log(`  Visits  : ${visitHeaders.length} columns`);
+    console.log(`  File        : ${filePath}`);
+    console.log(`  Header fmt  : ${twoRowHeader ? 'two-row (merged-cell)' : 'single-row'}`);
+    console.log(`  PRE column  : "${preLabel}" → key: "${preKey}"`);
+    console.log(`  Visit cols  : ${visitCols.length}`);
+    console.log(`  Data rows   : ${dataRows.length}`);
 
-    // Auto-create PRE field definition (phase = 'pre')
+    // ── Optional: wipe previous (wrong) POST field definitions and records ─
+    if (resetPost) {
+        const delFields = await DatasetField.destroy({ where: { sub_program_id: subId, phase: 'post' } });
+        const delRecs   = await ProgramDataRecord.destroy({ where: { sub_program_id: subId, phase: 'post' } });
+        console.log(`  --reset-post: removed ${delFields} POST field defs, ${delRecs} POST records`);
+    }
+
+    // ── Create/ensure PRE field definition ────────────────────────────────
     await DatasetField.findOrCreate({
         where: { sub_program_id: subId, field_key: preKey },
-        defaults: { field_label: preHeader, field_type: 'number', phase: 'pre', sort_order: 0 },
+        defaults: { field_label: preLabel, field_type: 'number', phase: 'pre', sort_order: 0 },
     });
 
-    // Auto-create POST field definitions (phase = 'post'), one per visit column
+    // ── Create/ensure POST field definitions (one per visit column) ────────
     const visitFields = [];
-    for (let i = 0; i < visitHeaders.length; i++) {
-        const label = visitHeaders[i];
-        const key   = toFieldKey(label);
+    for (let i = 0; i < visitCols.length; i++) {
+        const { label, colIndex } = visitCols[i];
+        const key = toFieldKey(label);
+        if (!key) continue;
         await DatasetField.findOrCreate({
             where: { sub_program_id: subId, field_key: key },
             defaults: { field_label: label, field_type: 'number', phase: 'post', sort_order: i + 1 },
         });
-        visitFields.push({ key, header: label });
+        visitFields.push({ key, colIndex });
     }
-    console.log(`  ✓ Field definitions ready: 1 PRE + ${visitFields.length} POST visit fields\n`);
+    console.log(`  ✓ Field defs ready: 1 PRE + ${visitFields.length} POST visit fields\n`);
 
     let preInserted = 0, preUpdated = 0;
     let postInserted = 0, postUpdated = 0;
     let membersCreated = 0;
     const missingIds = [];
 
-    for (const row of records) {
-        const externalId = (row[headers[0]] || '').trim();
+    for (const row of dataRows) {
+        const externalId = (row[0] || '').trim();
         if (!externalId) continue;
 
         let member = await ProgramMember.findOne({
@@ -477,8 +512,8 @@ async function cmdImportVisits(args) {
 
         if (!member) {
             if (createMissing) {
-                const name   = (row[headers[1]] || '').trim();
-                const gender = (row[headers[2]] || '').trim();
+                const name   = (row[1] || '').trim();
+                const gender = (row[2] || '').trim();
                 member = await ProgramMember.create({
                     program_id: sub.program_id, external_id: externalId,
                     name: name || externalId, gender: gender || null, created_by: 'import',
@@ -491,9 +526,9 @@ async function cmdImportVisits(args) {
             }
         }
 
-        // ── PRE record ─────────────────────────────────────────────────────
-        const rawPre = row[preHeader];
-        if (rawPre !== undefined && rawPre !== '') {
+        // ── PRE record — accessed by column index ──────────────────────────
+        const rawPre = (row[3] || '').trim();
+        if (rawPre !== '') {
             const preJson = { [preKey]: isNaN(Number(rawPre)) ? rawPre : Number(rawPre) };
             const existingPre = await ProgramDataRecord.findOne({
                 where: { sub_program_id: subId, member_id: member.id, phase: 'pre' },
@@ -510,11 +545,11 @@ async function cmdImportVisits(args) {
             }
         }
 
-        // ── POST record (all visit columns) ────────────────────────────────
+        // ── POST record — each visit column accessed by raw index ──────────
         const postJson = {};
-        for (const { key, header } of visitFields) {
-            const val = row[header];
-            if (val !== undefined && val !== '') {
+        for (const { key, colIndex } of visitFields) {
+            const val = (row[colIndex] || '').trim();
+            if (val !== '') {
                 postJson[key] = isNaN(Number(val)) ? val : Number(val);
             }
         }
@@ -535,11 +570,11 @@ async function cmdImportVisits(args) {
         }
 
         const total = preInserted + preUpdated + postInserted + postUpdated;
-        if (total % 100 === 0 && total > 0) process.stdout.write(`  ${total} records...\r`);
+        if (total % 200 === 0 && total > 0) process.stdout.write(`  ${total} records...\r`);
     }
 
     console.log('\nDone.');
-    console.log(`  PRE records  — Inserted: ${preInserted},  Updated: ${preUpdated}`);
+    console.log(`  PRE records  — Inserted: ${preInserted}, Updated: ${preUpdated}`);
     console.log(`  POST records — Inserted: ${postInserted}, Updated: ${postUpdated}`);
     console.log(`  Members — Auto-created: ${membersCreated}, Not found: ${missingIds.length}`);
     if (missingIds.length > 0) {
