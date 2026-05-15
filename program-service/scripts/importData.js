@@ -10,19 +10,23 @@
  *                  --file <path>  --program-id <id>
  *   records      — Import pre/post data from a CSV file
  *                  --file <path>  --sub-program-id <id>  --phase pre|post
+ *   visits       — Import visit-style tracking data (PRE baseline + repeated POST visits)
+ *                  --file <path>  --sub-program-id <id>  [--create-missing]
  *
  * Examples:
  *   node scripts/importData.js setup
  *   node scripts/importData.js members --file ./data/members.csv --program-id 1
  *   node scripts/importData.js records --file ./data/PRE-Diet.csv --sub-program-id 1 --phase pre
+ *   node scripts/importData.js visits  --file ./data/steps-count.tsv --sub-program-id 9
+ *   node scripts/importData.js visits  --file ./data/sleep-duration.tsv --sub-program-id 10
  *
- * CSV format for members (columns in order):
- *   S.No, Name, Class/Dept/Year, Place, Mobile, Watch Serial No, (Signature ignored)
- *   The script auto-generates MMES_<padded S.No> as external_id.
- *
- * CSV format for data records:
- *   First 4 columns: ID (MMES_xxx), Name, Gender, Age — then data columns
- *   Headers must match the field_key values defined in the field schema.
+ * TSV format for visits (wide format):
+ *   Col 0: ID (MMES_xxx)
+ *   Col 1: Name
+ *   Col 2: Gender
+ *   Col 3: PRE value  (e.g. "PRE - Steps count")   → stored in pre record
+ *   Col 4+: Visit values (e.g. "August - 1st visit")  → stored in post record
+ *   Field definitions (DatasetField) are auto-created from the column headers.
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
@@ -208,6 +212,8 @@ async function cmdSetup() {
         { name: 'Mental',            description: 'Mental health and wellbeing questionnaire (71 items).' },
         { name: 'Social',            description: 'Social well-being and community engagement questionnaire (40 items).' },
         { name: 'Sleep',             description: 'Sleep quality and habits questionnaire (18 items).' },
+        { name: 'Steps Count',       description: 'Daily step count — PRE baseline + bi-monthly POST visit readings.' },
+        { name: 'Sleep Duration',    description: 'Nightly sleep duration — PRE baseline + bi-monthly POST visit readings.' },
     ];
 
     for (const def of subProgramDefs) {
@@ -394,6 +400,155 @@ async function cmdImportRecords(args) {
     }
 }
 
+/* ════════════════════ Command: import visits (wide format) ═════════════ */
+// Handles tracking data where Col3 = single PRE value and Col4+ = repeated POST visit columns.
+// Field definitions (DatasetField) are auto-created from the TSV column headers.
+
+function toFieldKey(label) {
+    return label.toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .trim()
+        .replace(/\s+/g, '_')
+        .replace(/_+/g, '_');
+}
+
+async function cmdImportVisits(args) {
+    const fileIdx       = args.indexOf('--file');
+    const subIdx        = args.indexOf('--sub-program-id');
+    const createMissing = args.includes('--create-missing');
+
+    if (fileIdx === -1 || subIdx === -1) {
+        console.error('Usage: importData.js visits --file <tsv> --sub-program-id <id> [--create-missing]');
+        process.exit(1);
+    }
+    const filePath = args[fileIdx + 1];
+    const subId    = parseInt(args[subIdx + 1]);
+
+    const sub = await SubProgram.findByPk(subId);
+    if (!sub) { console.error(`Sub-program ${subId} not found`); process.exit(1); }
+
+    const { headers, records } = await parseCsv(filePath);
+    // Expected layout: Col0=ID, Col1=Name, Col2=Gender, Col3=PRE value, Col4+=Visit columns
+    if (headers.length < 5) {
+        console.error('Expected at least 5 columns: ID, Name, Gender, PRE value, and at least one visit column.');
+        process.exit(1);
+    }
+
+    const preHeader    = headers[3];
+    const visitHeaders = headers.slice(4);
+    const preKey       = toFieldKey(preHeader);
+
+    console.log(`\nImporting visit data for sub-program "${sub.name}" (id=${subId})`);
+    console.log(`  File    : ${filePath}`);
+    console.log(`  PRE col : "${preHeader}" → field_key: "${preKey}"`);
+    console.log(`  Visits  : ${visitHeaders.length} columns`);
+
+    // Auto-create PRE field definition (phase = 'pre')
+    await DatasetField.findOrCreate({
+        where: { sub_program_id: subId, field_key: preKey },
+        defaults: { field_label: preHeader, field_type: 'number', phase: 'pre', sort_order: 0 },
+    });
+
+    // Auto-create POST field definitions (phase = 'post'), one per visit column
+    const visitFields = [];
+    for (let i = 0; i < visitHeaders.length; i++) {
+        const label = visitHeaders[i];
+        const key   = toFieldKey(label);
+        await DatasetField.findOrCreate({
+            where: { sub_program_id: subId, field_key: key },
+            defaults: { field_label: label, field_type: 'number', phase: 'post', sort_order: i + 1 },
+        });
+        visitFields.push({ key, header: label });
+    }
+    console.log(`  ✓ Field definitions ready: 1 PRE + ${visitFields.length} POST visit fields\n`);
+
+    let preInserted = 0, preUpdated = 0;
+    let postInserted = 0, postUpdated = 0;
+    let membersCreated = 0;
+    const missingIds = [];
+
+    for (const row of records) {
+        const externalId = (row[headers[0]] || '').trim();
+        if (!externalId) continue;
+
+        let member = await ProgramMember.findOne({
+            where: { program_id: sub.program_id, external_id: externalId },
+        });
+
+        if (!member) {
+            if (createMissing) {
+                const name   = (row[headers[1]] || '').trim();
+                const gender = (row[headers[2]] || '').trim();
+                member = await ProgramMember.create({
+                    program_id: sub.program_id, external_id: externalId,
+                    name: name || externalId, gender: gender || null, created_by: 'import',
+                });
+                membersCreated++;
+                console.log(`  ✓ Created member: ${externalId} — ${name}`);
+            } else {
+                missingIds.push(externalId);
+                continue;
+            }
+        }
+
+        // ── PRE record ─────────────────────────────────────────────────────
+        const rawPre = row[preHeader];
+        if (rawPre !== undefined && rawPre !== '') {
+            const preJson = { [preKey]: isNaN(Number(rawPre)) ? rawPre : Number(rawPre) };
+            const existingPre = await ProgramDataRecord.findOne({
+                where: { sub_program_id: subId, member_id: member.id, phase: 'pre' },
+            });
+            if (existingPre) {
+                await existingPre.update({ data_json: { ...existingPre.data_json, ...preJson } });
+                preUpdated++;
+            } else {
+                await ProgramDataRecord.create({
+                    sub_program_id: subId, member_id: member.id, phase: 'pre',
+                    data_json: preJson, created_by: 'import',
+                });
+                preInserted++;
+            }
+        }
+
+        // ── POST record (all visit columns) ────────────────────────────────
+        const postJson = {};
+        for (const { key, header } of visitFields) {
+            const val = row[header];
+            if (val !== undefined && val !== '') {
+                postJson[key] = isNaN(Number(val)) ? val : Number(val);
+            }
+        }
+        if (Object.keys(postJson).length > 0) {
+            const existingPost = await ProgramDataRecord.findOne({
+                where: { sub_program_id: subId, member_id: member.id, phase: 'post' },
+            });
+            if (existingPost) {
+                await existingPost.update({ data_json: { ...existingPost.data_json, ...postJson } });
+                postUpdated++;
+            } else {
+                await ProgramDataRecord.create({
+                    sub_program_id: subId, member_id: member.id, phase: 'post',
+                    data_json: postJson, created_by: 'import',
+                });
+                postInserted++;
+            }
+        }
+
+        const total = preInserted + preUpdated + postInserted + postUpdated;
+        if (total % 100 === 0 && total > 0) process.stdout.write(`  ${total} records...\r`);
+    }
+
+    console.log('\nDone.');
+    console.log(`  PRE records  — Inserted: ${preInserted},  Updated: ${preUpdated}`);
+    console.log(`  POST records — Inserted: ${postInserted}, Updated: ${postUpdated}`);
+    console.log(`  Members — Auto-created: ${membersCreated}, Not found: ${missingIds.length}`);
+    if (missingIds.length > 0) {
+        console.log('\nMissing IDs (records skipped):');
+        missingIds.forEach(id => console.log(`  ${id}`));
+        console.log('\nRe-run with --create-missing to auto-create these members.');
+    }
+}
+
 /* ═══════════════════════════ Entry ══════════════════════════════════════ */
 
 async function main() {
@@ -406,8 +561,9 @@ async function main() {
             case 'setup':   await cmdSetup();              break;
             case 'members': await cmdImportMembers(rest);  break;
             case 'records': await cmdImportRecords(rest);  break;
+            case 'visits':  await cmdImportVisits(rest);   break;
             default:
-                console.log('Commands: setup | members | records');
+                console.log('Commands: setup | members | records | visits');
                 console.log('Run with --help for usage.');
         }
     } catch (err) {
