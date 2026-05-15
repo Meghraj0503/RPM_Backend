@@ -5,8 +5,12 @@ const uCtrl  = require('../controllers/userProgramController');
 
 router.use(authMiddleware);
 
+/* ──────────────── Dashboard ─────────────── */
+router.get ('/dashboard',                      uCtrl.getMyDashboard);
+
 /* ──────────────── Programs ──────────────── */
 router.get ('/programs',                       uCtrl.getMyPrograms);
+router.get ('/programs/:id/report',            uCtrl.getProgramReport);
 router.get ('/programs/:id',                   uCtrl.getProgramDetail);
 
 /* ──────────────── Opt-Out ───────────────── */

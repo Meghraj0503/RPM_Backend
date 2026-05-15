@@ -119,7 +119,7 @@ exports.optOut = async (req, res) => {
 exports.getSubProgramData = async (req, res) => {
     try {
         const sub = await SubProgram.findByPk(req.params.id, {
-            include: [{ model: DatasetField, as: 'fields', order: [['sort_order', 'ASC']] }],
+            include: [{ model: DatasetField, as: 'fields', separate: true, order: [['sort_order', 'ASC']] }],
         });
         if (!sub) return res.status(404).json({ error: 'Sub-program not found' });
 
@@ -200,6 +200,197 @@ exports.submitPostData = async (req, res) => {
             changed_fields: data_json, changed_by: req.user.id, changed_by_role: 'user',
         });
         res.status(201).json({ message: 'Post data submitted', record });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+/* ═══════════════════ USER: DASHBOARD (single call) ══════════ */
+
+// GET /api/programs/user/dashboard
+// Returns: all programs the user is enrolled in, each with sub-programs
+// and their pre/post completion + verification status. One network call for the home screen.
+exports.getMyDashboard = async (req, res) => {
+    try {
+        const phoneVariants = req.user.phoneNumber
+            ? [...new Set([req.user.phoneNumber, normalizePhone(req.user.phoneNumber)])].filter(Boolean)
+            : [];
+
+        const memberships = await ProgramMember.findAll({
+            where: { [Op.or]: [
+                { user_id: req.user.id },
+                ...(phoneVariants.length ? [{ phone: { [Op.in]: phoneVariants } }] : []),
+            ], is_active: true },
+        });
+
+        if (memberships.length === 0) return res.json({ programs: [] });
+
+        // Auto-link user_id if matched by phone
+        for (const m of memberships) {
+            if (!m.user_id) await m.update({ user_id: req.user.id });
+        }
+
+        const programIds  = [...new Set(memberships.map(m => m.program_id))];
+        const memberByPid = {};
+        memberships.forEach(m => { memberByPid[m.program_id] = m; });
+
+        const programs = await Program.findAll({
+            where: { id: programIds },
+            include: [{
+                model: SubProgram, as: 'sub_programs',
+                attributes: ['id', 'name', 'description', 'start_date', 'end_date', 'opt_out_enabled'],
+            }],
+            order: [['start_date', 'DESC']],
+        });
+
+        // For each program gather opt-outs and data record status for the member
+        const result = await Promise.all(programs.map(async (program) => {
+            const member = memberByPid[program.id];
+
+            const optOuts = await SubProgramOptOut.findAll({ where: { member_id: member.id } });
+            const optOutSet = new Set(optOuts.map(o => o.sub_program_id));
+
+            const subIds = program.sub_programs.map(s => s.id);
+            const records = await ProgramDataRecord.findAll({
+                where: { sub_program_id: subIds, member_id: member.id },
+                attributes: ['sub_program_id', 'phase', 'verification_status', 'created_at', 'updated_at'],
+            });
+
+            // Index records by subId+phase
+            const recMap = {};
+            records.forEach(r => { recMap[`${r.sub_program_id}_${r.phase}`] = r; });
+
+            const sub_programs = program.sub_programs.map(s => {
+                const opted_out = optOutSet.has(s.id);
+                const pre  = recMap[`${s.id}_pre`]  || null;
+                const post = recMap[`${s.id}_post`] || null;
+                return {
+                    id:              s.id,
+                    name:            s.name,
+                    description:     s.description,
+                    start_date:      s.start_date,
+                    end_date:        s.end_date,
+                    opt_out_enabled: s.opt_out_enabled,
+                    opted_out,
+                    pre: pre ? {
+                        submitted:   true,
+                        verified:    pre.verification_status === 'verified',
+                        submitted_at: pre.created_at,
+                    } : { submitted: false, verified: false, submitted_at: null },
+                    post: post ? {
+                        submitted:   true,
+                        verified:    post.verification_status === 'verified',
+                        submitted_at: post.created_at,
+                        updated_at:  post.updated_at,
+                    } : { submitted: false, verified: false, submitted_at: null },
+                };
+            });
+
+            return {
+                id:          program.id,
+                name:        program.name,
+                description: program.description,
+                start_date:  program.start_date,
+                end_date:    program.end_date,
+                member: {
+                    id:          member.id,
+                    external_id: member.external_id,
+                    name:        member.name,
+                    gender:      member.gender,
+                    age:         member.age,
+                    joined_at:   member.created_at,
+                },
+                sub_programs,
+            };
+        }));
+
+        res.json({ programs: result });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};
+
+/* ══════════════════ USER: PROGRAM REPORT ════════════════════ */
+
+// GET /api/programs/user/programs/:id/report
+// Returns all sub-programs as tabs, each with questions and their pre/post values + trend.
+exports.getProgramReport = async (req, res) => {
+    try {
+        const program = await Program.findByPk(req.params.id, {
+            include: [{ model: SubProgram, as: 'sub_programs', attributes: ['id', 'name', 'opt_out_enabled'] }],
+        });
+        if (!program) return res.status(404).json({ error: 'Program not found' });
+
+        const member = await findMember(req.user.id, req.user.phoneNumber, program.id);
+        if (!member) return res.status(403).json({ error: 'Not enrolled in this program' });
+
+        const subIds = program.sub_programs.map(s => s.id);
+
+        const [optOuts, allFields, records] = await Promise.all([
+            SubProgramOptOut.findAll({ where: { member_id: member.id, sub_program_id: subIds } }),
+            DatasetField.findAll({
+                where: { sub_program_id: subIds },
+                order: [['sub_program_id', 'ASC'], ['sort_order', 'ASC']],
+            }),
+            ProgramDataRecord.findAll({
+                where: { sub_program_id: subIds, member_id: member.id },
+                attributes: ['sub_program_id', 'phase', 'data_json'],
+            }),
+        ]);
+
+        const optOutSet = new Set(optOuts.map(o => o.sub_program_id));
+
+        const fieldsBySubId = {};
+        allFields.forEach(f => {
+            if (!fieldsBySubId[f.sub_program_id]) fieldsBySubId[f.sub_program_id] = [];
+            fieldsBySubId[f.sub_program_id].push(f);
+        });
+
+        const recMap = {};
+        records.forEach(r => { recMap[`${r.sub_program_id}_${r.phase}`] = r; });
+
+        const sub_programs = program.sub_programs.map(s => {
+            const pre  = recMap[`${s.id}_pre`]  || null;
+            const post = recMap[`${s.id}_post`] || null;
+            const fields = fieldsBySubId[s.id] || [];
+
+            const questions = fields.map(f => {
+                const preVal  = pre  ? (pre.data_json?.[f.field_key]  ?? null) : null;
+                const postVal = post ? (post.data_json?.[f.field_key] ?? null) : null;
+
+                let trend = null;
+                if (preVal !== null && postVal !== null) {
+                    const preNum  = parseFloat(preVal);
+                    const postNum = parseFloat(postVal);
+                    if (!isNaN(preNum) && !isNaN(postNum)) {
+                        trend = postNum > preNum ? 'up' : postNum < preNum ? 'down' : 'flat';
+                    } else {
+                        trend = String(postVal) === String(preVal) ? 'flat' : 'changed';
+                    }
+                }
+
+                return {
+                    field_key:   f.field_key,
+                    field_label: f.field_label,
+                    field_type:  f.field_type,
+                    unit:        f.unit,
+                    pre:         preVal,
+                    post:        postVal,
+                    trend,
+                };
+            });
+
+            return {
+                id:            s.id,
+                name:          s.name,
+                opted_out:     optOutSet.has(s.id),
+                pre_submitted: !!pre,
+                post_submitted: !!post,
+                questions,
+            };
+        });
+
+        res.json({ program: { id: program.id, name: program.name }, sub_programs });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
