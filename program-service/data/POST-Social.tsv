@@ -1,4 +1,3 @@
-SA - strongly agree; A - agree; DA - disagree; SDA - strongly disagree																																											
 ID	Name	Gender	Age	Q 1	Q 2	Q 3	Q 4	Q 5	Q 6	Q 7	Q 8	Q 9	Q 10	Q 11	Q 12	Q 13	Q 14	Q 15	Q 16	Q 17	Q 18	Q 19	Q 20	Q 21	Q 22	Q 23	Q 24	Q 25	Q 26	Q 27	Q 28	Q 29	Q 30	Q 31	Q 32	Q 33	Q 34	Q 35	Q 36	Q 37	Q 38	Q 39	Q 40
 MMES_001	ANEESA FIRDOSE. S	Female	18	Home with nuclear family	1	SA	A	A	SA	2	A	A	Weekly	Most days	Most of the time	Always	A	Daily	A	A	A	A	A	A	A	A	A	A	A	A	A	A	A	A	A	A	A	SA	SA	A	A	A	SA
 MMES_002	ARFA ANJUM. R	Female	19	Home with nuclear family	1	SA	A	A	SA	2	A	A	Weekly	Most days	Most of the time	Always	A	Weekly	A	A	A	A	A	A	A	A	A	A	A	A	SA	A	A	A	A	A	A	SA	SA	A	A	A	SA
@@ -204,6 +203,4 @@ MMES_201	Sangeetha priya	Female	18	Home with nuclear family	1	A	A	A	SA	0	Not sur
 MMES_202	Nirmala	Female	19	Home with nuclear family	0	A	DA	A	SA	0	Not sure	DA	Monthly	Rarely	Never	Always	DA	Weekly	A	A	A	A	A	DA	A	A	SA	A	Not sure	A	SA	A	A	Not sure	A	SDA	DA	Not sure	DA	Not sure	A	A	SA
 MMES_203	Usha rani	Female	21	Home with nuclear family	0	A	A	A	SA	1	Not sure	DA	Monthly	Rarely	Never	Always	DA	Monthly	A	SA	DA	A	A	DA	Not sure	A	A	Not sure	A	DA	SA	A	DA	DA	A	SDA	A	Not sure	Not sure	A	DA	A	Not sure
 MMES_204	Hemabigai	Female	19	Home with nuclear family	1	A	A	A	SA	1	DA	DA	Weekly	Rarely	Sometimes	Always	DA	Daily	DA	SA	Not sure	A	A	A	Not sure	SA	A	A	DA	DA	SA	A	DA	A	A	DA	A	Not sure	Not sure	A	DA	DA	A
-																																											
-																																											
-		Control patients																																									
+																																									
